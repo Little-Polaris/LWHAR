@@ -1,0 +1,8 @@
+*.skeleton
+*.txt
+*.pkl
+*.pth
+*.npz
+logs/
+temp_test/
+config/
