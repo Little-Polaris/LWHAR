@@ -48,7 +48,9 @@ if __name__ == '__main__':
     # 创建模型
     # model = Model.Model()
     model = MyModel.Model()
+    # model = MyModel1.Model()
     model = model.to(device)
+    print(model)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f'Total params: {total_params}')
 

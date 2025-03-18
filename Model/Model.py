@@ -1,11 +1,10 @@
 import math
+import pdb
 
 import numpy as np
 import torch
 from torch import nn
 from torch.autograd import Variable
-from torch.amp import autocast
-
 
 def import_class(name):
     components = name.split('.')
@@ -267,10 +266,6 @@ class TCN_GCN_unit(nn.Module):
             self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=stride)
 
     def forward(self, x):
-        # x1 = self.gcn1(x)
-        # x2 = self.tcn1(x1)
-        # res = self.residual(x)
-        # y = self.relu(x2 + res)
         y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
         return y
 
@@ -285,38 +280,38 @@ class Model(nn.Module):
         # else:
         #     Graph = import_class(graph)
         #     self.graph = Graph(**graph_args)
+        #
+        # A = self.graph.A # 3,25,25
 
         A = np.eye(25)
         adj_matrix = np.zeros((25, 25))
         adj_relation = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
-                    (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
-                    (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
-                    (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
+                        (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
+                        (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
+                        (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
         for i in adj_relation:
             adj_matrix[i[0] - 1, i[1] - 1] = 1
-        A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
+        A = np.stack((A, adj_matrix.T, adj_matrix), 0)  # 3,25,25
 
         self.num_class = num_class
         self.num_point = num_point
-        self.data_bn1 = nn.BatchNorm1d(num_person * in_channels * num_point)
-        # self.data_bn2 = nn.BatchNorm1d(num_person * in_channels * num_point)
+        self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
 
         base_channel = 64
         self.l1 = TCN_GCN_unit(in_channels, base_channel, A, residual=False, adaptive=adaptive)
         self.l2 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
-        self.l3 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
-        self.l4 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        # self.l3 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        # self.l4 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
         self.l5 = TCN_GCN_unit(base_channel, base_channel*2, A, stride=2, adaptive=adaptive)
         self.l6 = TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
-        self.l7 = TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
+        # self.l7 = TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
         self.l8 = TCN_GCN_unit(base_channel*2, base_channel*4, A, stride=2, adaptive=adaptive)
-        self.l9 = TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
+        # self.l9 = TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
         self.l10 = TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))
-        # bn_init(self.data_bn2, 1)
-        bn_init(self.data_bn1, 1)
+        bn_init(self.data_bn, 1)
         if drop_out:
             self.drop_out = nn.Dropout(drop_out)
         else:
@@ -329,17 +324,17 @@ class Model(nn.Module):
         N, C, T, V, M = x.size()
 
         x = x.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V * C, T)
-        normalized_x = self.data_bn1(x)
-        x = normalized_x.view(N, M, V, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V)
+        x = self.data_bn(x)
+        x = x.view(N, M, V, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V)
         x = self.l1(x)
         x = self.l2(x)
-        x = self.l3(x)
-        x = self.l4(x)
+        # x = self.l3(x)
+        # x = self.l4(x)
         x = self.l5(x)
         x = self.l6(x)
-        x = self.l7(x)
+        # x = self.l7(x)
         x = self.l8(x)
-        x = self.l9(x)
+        # x = self.l9(x)
         x = self.l10(x)
 
         # N*M,C,T,V
@@ -347,6 +342,5 @@ class Model(nn.Module):
         x = x.view(N, M, c_new, -1)
         x = x.mean(3).mean(1)
         x = self.drop_out(x)
-        x = self.fc(x)
 
-        return x
+        return self.fc(x)

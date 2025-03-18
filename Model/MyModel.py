@@ -139,7 +139,7 @@ class MultiScale_TemporalConv(nn.Module):
             nn.BatchNorm2d(branch_channels)
         ))
 
-        self.permutations = nn.ModuleList([Permutation(self.num_point   ) for i in self.branches])
+        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
         # Residual connection
         if not residual:
             self.residual = lambda x: 0
@@ -178,6 +178,7 @@ class CTRGC(nn.Module):
             self.mid_channels = in_channels // mid_reduction
         self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
         self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        self.conv3 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
         # self.conv3 = nn.Conv3d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
         self.alpha = nn.Parameter(torch.tensor([0.5]))
         self.tanh = nn.Tanh()
@@ -189,12 +190,11 @@ class CTRGC(nn.Module):
                 bn_init(m, 1)
 
     def forward(self, x, A=None):
-        # x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
         x1, x2 = self.conv1(x), self.conv2(x)
         x1, x2 = x1.unsqueeze(-1) @ x2.unsqueeze(-2), x1.unsqueeze(-1) - x2.unsqueeze(-2)
-        x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha))
-        # x1 = self.conv3(x1) * self.beta + A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        x1 += A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha)) + self.beta * A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        x1 = x1.mean(-1)
+        x1 = self.conv3(x1)
         return x1
 
 class unit_tcn(nn.Module):
@@ -241,7 +241,7 @@ class unit_gcn(nn.Module):
             self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
         else:
             self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
-        self.bn = nn.BatchNorm3d(out_channels)
+        self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU(inplace=True)
 
@@ -263,8 +263,7 @@ class unit_gcn(nn.Module):
             y = z + y if y is not None else z
         y = self.bn(y)
         z = self.down(x)
-        y += z.unsqueeze(-1) @ z.unsqueeze(-2)
-        y = y.mean(-1)
+        y += z
         y = self.relu(y)
 
 
