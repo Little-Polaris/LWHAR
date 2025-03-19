@@ -223,9 +223,10 @@ class unit_gcn(nn.Module):
         self.in_c = in_channels
         self.adaptive = adaptive
         self.num_subset = A.shape[0]
-        self.convs = nn.ModuleList()
-        for i in range(self.num_subset):
-            self.convs.append(CTRGC(in_channels, out_channels))
+        self.CTRGC = CTRGC(in_channels, out_channels)
+        # self.convs = nn.ModuleList()
+        # for i in range(self.num_subset):
+        #     self.convs.append(CTRGC(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
@@ -258,9 +259,10 @@ class unit_gcn(nn.Module):
             A = self.PA
         else:
             A = self.A.cuda(x.get_device())
-        for i in range(self.num_subset):
-            z = self.convs[i](x, A[i])
-            y = z + y if y is not None else z
+        # for i in range(self.num_subset):
+        #     z = self.convs[i](x, A[i])
+        #     y = z + y if y is not None else z
+        y = self.CTRGC(x, A)
         y = self.bn(y)
         z = self.down(x)
         y += z
@@ -307,14 +309,16 @@ class Model(nn.Module):
         #     self.graph = Graph(**graph_args)
 
         A = np.eye(25)
-        adj_matrix = np.zeros((25, 25))
+        # adj_matrix = np.zeros((25, 25))
         adj_relation = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
                     (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
                     (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
                     (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
         for i in adj_relation:
-            adj_matrix[i[0] - 1, i[1] - 1] = 1
-        A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
+            A[i[0] - 1, i[1] - 1] = 1
+            A[i[1] - 1, i[0] - 1] = 1
+            # adj_matrix[i[0] - 1, i[1] - 1] = 1
+        # A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
 
         self.num_class = num_class
         self.num_point = num_point
