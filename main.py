@@ -128,12 +128,13 @@ if __name__ == '__main__':
 
         logger.info(f'Epoch {i + 1}, Loss: {cur_epoch_test_loss}, Acc: {cur_acc / count}, Learning Rate: {current_learning_rate}')
         acc.append(cur_acc / count)
-        state_dict = model.state_dict()
-        weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
+        if (epoch + 1) % 5 == 0:
+            state_dict = model.state_dict()
+            weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
 
-        if not os.path.exists(f'model/model_weight'):
-            os.makedirs(f'model/model_weight')
-        torch.save(weights, f'model/model_weight/model{i + 1}.pth')
+            if not os.path.exists(f'./logs/{start_time}/model_weight'):
+                os.makedirs(f'./logs/{start_time}/model_weight')
+            torch.save(weights, f'./logs/{start_time}/model_weight/model{i + 1}.pth')
         writer.add_scalar('Loss/train', cur_epoch_test_loss, i + 1)
         writer.add_scalar('Acc/train', cur_acc / count, i + 1)
         if i == warm_up_epoch - 1:

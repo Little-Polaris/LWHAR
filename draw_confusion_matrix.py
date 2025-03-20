@@ -21,7 +21,7 @@ if __name__ == '__main__':
         config = dict(json.load(file))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    weight = torch.load('../runs-65-108550.pt')
+    weight = torch.load('../ctr-model70.pth')
     # model = MyModel.Model().to(device)
     model = Model.Model().to(device)
     model.load_state_dict(weight)
@@ -56,4 +56,4 @@ if __name__ == '__main__':
 
     # Print the classification report
     print('\nClassification Report:\n', classification_report(y_true_label,
-                                                              y_pred_label))
+                                                              y_pred_label, digits=4))
