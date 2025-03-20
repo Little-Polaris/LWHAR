@@ -176,13 +176,18 @@ class CTRGC(nn.Module):
         else:
             self.rel_channels = in_channels // rel_reduction
             self.mid_channels = in_channels // mid_reduction
+        # self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        # self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        # self.conv3 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
+        # self.conv3 = nn.Conv3d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
         self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
         self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.conv3 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
-        # self.conv3 = nn.Conv3d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
-        self.alpha = nn.Parameter(torch.tensor([0.5]))
+        self.conv3 = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
+        self.conv4 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
+        self.alpha = nn.Parameter(torch.tensor([0], dtype=torch.float32))
         self.tanh = nn.Tanh()
-        self.beta = nn.Parameter(torch.ones(1))
+        self.beta = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
+        self.gamma = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 conv_init(m)
@@ -190,11 +195,15 @@ class CTRGC(nn.Module):
                 bn_init(m, 1)
 
     def forward(self, x, A=None):
-        x1, x2 = self.conv1(x), self.conv2(x)
-        x1, x2 = x1.unsqueeze(-1) @ x2.unsqueeze(-2), x1.unsqueeze(-1) - x2.unsqueeze(-2)
-        x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha)) + self.beta * A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        x1 = x1.mean(-1)
-        x1 = self.conv3(x1)
+        # x1, x2 = self.conv1(x), self.conv2(x)
+        # x1, x2 = x1.unsqueeze(-1) @ x2.unsqueeze(-2), x1.unsqueeze(-1) - x2.unsqueeze(-2)
+        # x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha)) + self.beta * A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        # x1 = x1.mean(-1)
+        # x1 = self.conv3(x1)
+        x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
+        x1 = self.tanh(self.beta * (x1.unsqueeze(-1) - x2.unsqueeze(-2)) + self.gamma * (x1.unsqueeze(-1) @ x2.unsqueeze(-2)))
+        x1 = self.conv4(x1) * self.alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
+        x1 = torch.einsum('ncuv,nctv->nctu', x1, x3)
         return x1
 
 class unit_tcn(nn.Module):
@@ -223,10 +232,10 @@ class unit_gcn(nn.Module):
         self.in_c = in_channels
         self.adaptive = adaptive
         self.num_subset = A.shape[0]
-        self.CTRGC = CTRGC(in_channels, out_channels)
-        # self.convs = nn.ModuleList()
-        # for i in range(self.num_subset):
-        #     self.convs.append(CTRGC(in_channels, out_channels))
+        # self.CTRGC = CTRGC(in_channels, out_channels)
+        self.convs = nn.ModuleList()
+        for i in range(self.num_subset):
+            self.convs.append(CTRGC(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
@@ -259,13 +268,13 @@ class unit_gcn(nn.Module):
             A = self.PA
         else:
             A = self.A.cuda(x.get_device())
-        # for i in range(self.num_subset):
-        #     z = self.convs[i](x, A[i])
-        #     y = z + y if y is not None else z
-        y = self.CTRGC(x, A)
+        for i in range(self.num_subset):
+            z = self.convs[i](x, A[i])
+            y = z + y if y is not None else z
+        # y = self.CTRGC(x, A)
         y = self.bn(y)
         z = self.down(x)
-        y += z
+        y = torch.add(y, z)
         y = self.relu(y)
 
 
@@ -273,7 +282,7 @@ class unit_gcn(nn.Module):
 
 
 class TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, A, time_length, num_point, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+    def __init__(self, in_channels, out_channels, A, time_length, num_point, stride=1, residual=True, adaptive=True, kernel_size=3, dilations=[1,2]):
         super(TCN_GCN_unit, self).__init__()
         self.gcn1 = unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
         self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, time_length, num_point, kernel_size=kernel_size, stride=stride, dilations=dilations,
@@ -309,16 +318,16 @@ class Model(nn.Module):
         #     self.graph = Graph(**graph_args)
 
         A = np.eye(25)
-        # adj_matrix = np.zeros((25, 25))
+        adj_matrix = np.zeros((25, 25))
         adj_relation = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
                     (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
                     (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
                     (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
         for i in adj_relation:
-            A[i[0] - 1, i[1] - 1] = 1
-            A[i[1] - 1, i[0] - 1] = 1
-            # adj_matrix[i[0] - 1, i[1] - 1] = 1
-        # A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
+            # A[i[0] - 1, i[1] - 1] = 1
+            # A[i[1] - 1, i[0] - 1] = 1
+            adj_matrix[i[0] - 1, i[1] - 1] = 1
+        A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
 
         self.num_class = num_class
         self.num_point = num_point
