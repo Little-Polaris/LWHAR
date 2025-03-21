@@ -60,7 +60,6 @@ def shutdown_system():
 
 # 从环境变量中读取邮箱信息 (推荐)
 def after_finish(shutdown_immediately: bool = False):
-    time.sleep(10)
     sender_email = '2375425475@qq.com'
     sender_password = 'uihskvqfkuebecaj'
     receiver_email = 'jiahaoqi0519@gmail.com'  # 替换为你的收件人邮箱
@@ -71,6 +70,7 @@ def after_finish(shutdown_immediately: bool = False):
     latest_log = open(f'./logs/{sorted(log_times)[-1]}/log.txt', 'r')
     message = ''.join(latest_log.readlines())
     send_email(sender_email, sender_password, receiver_email, subject, message)
+    time.sleep(60)
     if not shutdown_immediately:
         time.sleep(300)
     # 关机
