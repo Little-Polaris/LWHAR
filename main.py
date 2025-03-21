@@ -128,7 +128,7 @@ if __name__ == '__main__':
 
         logger.info(f'Epoch {i + 1}, Loss: {cur_epoch_test_loss}, Acc: {cur_acc / count}, Learning Rate: {current_learning_rate}')
         acc.append(cur_acc / count)
-        if (epoch + 1) % 5 == 0:
+        if (i + 1) % 5 == 0:
             state_dict = model.state_dict()
             weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
 
