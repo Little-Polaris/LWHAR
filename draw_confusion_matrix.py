@@ -4,7 +4,10 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from fvcore.nn import FlopCountAnalysis
 from sklearn.metrics import confusion_matrix, classification_report
+from thop import profile
+from torchprofile import profile_macs
 from tqdm import tqdm
 
 from Model import MyModel
@@ -22,8 +25,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     weight = torch.load('../ctr-model70.pth')
-    # model = MyModel.Model().to(device)
-    model = Model.Model().to(device)
+    # model = MyModel.Model().to(device).eval()
+    model = Model.Model().to(device).eval()
     model.load_state_dict(weight)
     train_data_loader, test_data_loader = MyDataLoader(config, device)
 
@@ -33,7 +36,9 @@ if __name__ == '__main__':
     label_data = np.concatenate(label_data, axis=0)
 
     y_pred = []
-
+    test_data = torch.randn(1, 3, 64, 25, 2).to(device)
+    macs, params = profile(model, inputs=(test_data,))
+    print(f'MACs: {macs}, Params: {params}')
     for data in tqdm(test_data_loader):
         x, y, _ = data
         y_pred.append(model(x.to(device)).detach().cpu().numpy())

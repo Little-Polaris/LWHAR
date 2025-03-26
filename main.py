@@ -12,7 +12,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model
+from Model import Model, NewModel
 from Model import MyModel
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
@@ -47,7 +47,8 @@ if __name__ == '__main__':
 
     # 创建模型
     # model = Model.Model()
-    model = MyModel.Model()
+    # model = MyModel.Model()
+    model = NewModel.Model(config['num_class'], config['num_point'], config['dims'])
     model = model.to(device)
     logger.info(model)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
