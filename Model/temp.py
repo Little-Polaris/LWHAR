@@ -97,7 +97,8 @@ class MultiScale_TemporalConv(nn.Module):
         assert out_channels % (len(dilations) + 2) == 0, '# out channels should be multiples of # branches'
 
         # Multiple branches of temporal convolution
-        self.num_branches = len(dilations) + 2
+        # self.num_branches = len(dilations) + 2
+        self.num_branches = len(dilations)
         branch_channels = out_channels // self.num_branches
         if type(kernel_size) == list:
             assert len(kernel_size) == len(dilations)
@@ -126,18 +127,18 @@ class MultiScale_TemporalConv(nn.Module):
         ])
 
         # Additional Max & 1x1 branch
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
-            nn.BatchNorm2d(branch_channels),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
-            nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
-        ))
-
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
-            nn.BatchNorm2d(branch_channels)
-        ))
+        # self.branches.append(nn.Sequential(
+        #     nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
+        #     nn.BatchNorm2d(branch_channels),
+        #     nn.ReLU(inplace=True),
+        #     nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
+        #     nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
+        # ))
+        #
+        # self.branches.append(nn.Sequential(
+        #     nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
+        #     nn.BatchNorm2d(branch_channels)
+        # ))
 
         self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
         # Residual connection

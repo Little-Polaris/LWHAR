@@ -104,7 +104,7 @@ class spatial_self_attention(nn.Module):
         self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.attention = DotProductAttention(num_point)
         self.ffn = ffn(self.rel_channels, self.out_channels)
-        self.res = residual_module(in_channels, out_channels, 3, 1)
+        self.res = residual_module(in_channels, out_channels, 1, 1)
         self.relu = nn.ReLU()
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -151,28 +151,6 @@ class fast_path(nn.Module):
         x = self.bn(x)
         return x
 
-class slow_path(nn.Module):
-    def __init__(self, in_channels, out_channels, time_length):
-        super(slow_path, self).__init__()
-        padding = 1
-        stride = 1
-        kernel_size = 3
-        dilation = (time_length + 2 * padding - 1 + stride - time_length) // (kernel_size + 1)
-        dilation = (dilation, 1) if dilation > 1 else 1
-        self.conv = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride,
-            dilation)
-
-        self.bn = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return x
-
 class ffn(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ffn, self).__init__()
@@ -202,7 +180,7 @@ class ST_feature_extraction(nn.Module):
 
         self.fast_path = fast_path(in_channels, out_channels, time_length)
         self.slow_path = slow_path(in_channels, out_channels // 2, time_length)
-        self.residual = residual_module(in_channels, out_channels, kernel_size=3, stride=(1, 1))
+        self.residual = residual_module(in_channels, out_channels, 1, 1)
 
         # initialize
         self.apply(weights_init)
@@ -229,15 +207,15 @@ class Block(nn.Module):
                                                              out_channels,
                                                              num_point)
 
-        self.ST_feature_extraction = ST_feature_extraction(out_channels, out_channels,
-                                                           time_length)
-        self.res = residual_module(in_channels, out_channels, 3, 1)
+        # self.ST_feature_extraction = ST_feature_extraction(out_channels, out_channels,
+        #                                                    time_length)
+        self.res = residual_module(in_channels, out_channels, 1, 1)
 
 
     def forward(self, x):
         res = self.res(x)
         x = self.spatial_self_attention(x)
-        x = self.ST_feature_extraction(x)
+        # x = self.ST_feature_extraction(x)
         x += res
         return x
 
@@ -248,7 +226,7 @@ class Model(nn.Module):
         self.num_point = num_point
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
 
-        base_channels = 16
+        base_channels = 64
         time_length = 64
         self.block1 = Block(in_channels, base_channels, num_point, time_length)
         self.block2 = Block(base_channels, base_channels, num_point, time_length)
@@ -262,7 +240,7 @@ class Model(nn.Module):
         self.block10 = Block(base_channels * 4, base_channels * 4, num_point, time_length // 4)
 
 
-        self.res = residual_module(base_channels, base_channels, 3, 1)
+        # self.res = residual_module(base_channels, base_channels, 1, 1)
         self.dropout = nn.Dropout(0.2)
         self.fc = nn.Linear(base_channels * 4, num_class)
         self.softmax = nn.Softmax(dim=1)
