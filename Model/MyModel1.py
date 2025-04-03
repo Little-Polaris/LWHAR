@@ -1,18 +1,7 @@
 import math
 
-import numpy as np
 import torch
 from torch import nn
-from torch.autograd import Variable
-from torch.amp import autocast
-
-
-def import_class(name):
-    components = name.split('.')
-    mod = __import__(components[0])
-    for comp in components[1:]:
-        mod = getattr(mod, comp)
-    return mod
 
 
 def conv_branch_init(conv, branches):
@@ -49,25 +38,20 @@ def weights_init(m):
         if hasattr(m, 'bias') and m.bias is not None:
             m.bias.data.fill_(0)
 
-
-class TemporalConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1):
-        super(TemporalConv, self).__init__()
-        pad = (kernel_size + (kernel_size-1) * (dilation-1) - 1) // 2
-        self.conv = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size=kernel_size,
-            padding=pad,
-            stride=(stride, 1),
-            dilation=dilation)
-
-        self.bn = nn.BatchNorm2d(out_channels)
+class return_x(nn.Module):
+    def __init__(self):
+        super(return_x, self).__init__()
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
         return x
+
+class return_0(nn.Module):
+    def __init__(self):
+        super(return_0, self).__init__()
+
+    def forward(self, x):
+        return 0
+
 
 class Permutation(nn.Module):
     def __init__(self, dim):
@@ -81,93 +65,93 @@ class Permutation(nn.Module):
         x_permuted = torch.gather(x, 3, permutation_matrix)
         return x_permuted
 
-class MultiScale_TemporalConv(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 time_length,
-                 num_point,
-                 kernel_size=3,
-                 stride=1,
-                 dilations=[1,2,3,4],
-                 residual=True,
-                 residual_kernel_size=1):
-
-        super().__init__()
-        assert out_channels % (len(dilations) + 2) == 0, '# out channels should be multiples of # branches'
-
-        # Multiple branches of temporal convolution
-        self.num_branches = len(dilations) + 2
-        branch_channels = out_channels // self.num_branches
-        if type(kernel_size) == list:
-            assert len(kernel_size) == len(dilations)
+class st_feature_extraction_block(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None):
+        super(st_feature_extraction_block, self).__init__()
+        self.stride = stride if isinstance(stride, tuple) else (stride, 1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu1 = nn.ReLU()
+        if pooling == 'max':
+            self.pooling = nn.MaxPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.stride = 1
+        elif pooling == 'avg':
+            self.pooling = nn.AvgPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.stride = 1
         else:
-            kernel_size = [kernel_size]*len(dilations)
-        self.time_length = time_length
+            self.pooling = return_x()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.pooling(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        return x
+
+
+class pos_encoding(nn.Module):
+    def __init__(self, channels, num_point):
+        super(pos_encoding, self).__init__()
+
+        pe = torch.zeros(num_point, channels)
+        position = torch.arange(0, num_point, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).unsqueeze(0).permute(0, 3, 1, 2)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe
+        return x
+
+
+class st_feature_extraction(nn.Module):
+    def __init__(self , in_channels, out_channels, num_point, stride=1):
+        super(st_feature_extraction, self).__init__()
         self.num_point = num_point
-        # Temporal Convolution branches
-        self.branches = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(
-                    in_channels,
-                    branch_channels,
-                    kernel_size=1,
-                    padding=0),
-                nn.BatchNorm2d(branch_channels),
-                nn.ReLU(inplace=True),
-                TemporalConv(
-                    branch_channels,
-                    branch_channels,
-                    kernel_size=ks,
-                    stride=stride,
-                    dilation=dilation),
-            )
-            for ks, dilation in zip(kernel_size, dilations)
-        ])
-
-        # Additional Max & 1x1 branch
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
-            nn.BatchNorm2d(branch_channels),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
-            nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
-        ))
-
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
-            nn.BatchNorm2d(branch_channels)
-        ))
-
-        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
-        # Residual connection
-        if not residual:
-            self.residual = lambda x: 0
-        elif (in_channels == out_channels) and (stride == 1):
-            self.residual = lambda x: x
-        else:
-            self.residual = TemporalConv(in_channels, out_channels, kernel_size=residual_kernel_size, stride=stride)
-
-        # initialize
+        self.pe = pos_encoding(in_channels, num_point)
+        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
+        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1)
+        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2)
+        self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'max')
+        self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'avg')
         self.apply(weights_init)
 
     def forward(self, x):
-        # Input dim: (N,C,T,V)
-        res = self.residual(x)
-        branch_outs = []
-        for i in range(len(self.branches)):
-            x_permuted = self.permutations[i](x)
-            out = self.branches[i](x_permuted)
-            branch_outs.append(out)
-
-        out = torch.cat(branch_outs, dim=1)
-        out += res
+        x = self.pe(x)
+        x_permuted = self.permutations[0](x)
+        out1 = self.block1(x_permuted)
+        x_permuted = self.permutations[1](x)
+        out2 = self.block2(x_permuted)
+        x_permuted = self.permutations[2](x)
+        out3 = self.block3(x_permuted)
+        x_permuted = self.permutations[3](x)
+        out4 = self.block4(x_permuted)
+        out = torch.cat((out1, out2, out3, out4), dim=1)
         return out
 
+class dot_product_attention(nn.Module):
+    def __init__(self):
+        super(dot_product_attention, self).__init__()
+        self.tanh = nn.Tanh()
+        self.alpha = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
+        self.beta = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
 
-class CTRGC(nn.Module):
+    def forward(self, k, q):
+        x1 = k.unsqueeze(-1) @ q.unsqueeze(-2)
+        x2 = k.unsqueeze(-1) - q.unsqueeze(-2)
+        x = x1 * self.alpha + x2 * self.beta
+        x = self.tanh(x)
+        return x
+
+class st_attention_block(nn.Module):
     def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
-        super(CTRGC, self).__init__()
+        super(st_attention_block, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         if in_channels == 3 or in_channels == 9:
@@ -176,39 +160,37 @@ class CTRGC(nn.Module):
         else:
             self.rel_channels = in_channels // rel_reduction
             self.mid_channels = in_channels // mid_reduction
-        # self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        # self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        # self.conv3 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
-        # self.conv3 = nn.Conv3d(self.rel_channels, self.out_channels, kernel_size=3, padding=1)
-        self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.conv3 = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
-        self.conv4 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
+        self.W_K = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        self.W_Q = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        self.W_V = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
+        self.dot_production_attention = dot_product_attention()
+        self.ffn = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor([0], dtype=torch.float32))
-        self.tanh = nn.Tanh()
-        self.beta = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
-        self.gamma = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 conv_init(m)
             elif isinstance(m, nn.BatchNorm2d):
                 bn_init(m, 1)
 
-    def forward(self, x, A=None):
-        # x1, x2 = self.conv1(x), self.conv2(x)
-        # x1, x2 = x1.unsqueeze(-1) @ x2.unsqueeze(-2), x1.unsqueeze(-1) - x2.unsqueeze(-2)
-        # x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha)) + self.beta * A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        # x1 = x1.mean(-1)
-        # x1 = self.conv3(x1)
-        x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
-        x1 = self.tanh(self.beta * (x1.unsqueeze(-1) - x2.unsqueeze(-2)) + self.gamma * (x1.unsqueeze(-1) @ x2.unsqueeze(-2)))
-        x1 = self.conv4(x1) * self.alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
-        x1 = torch.einsum('ncuv,nctv->nctu', x1, x3)
-        return x1
+    def forward(self, x, adjc_mat):
+        k = self.W_K(x).mean(-2)
+        q = self.W_Q(x).mean(-2)
+        v = self.W_V(x)
 
-class unit_tcn(nn.Module):
+        x = self.dot_production_attention(k, q)
+
+        x = self.ffn(x)
+
+        x = self.alpha * x + adjc_mat.unsqueeze(0).unsqueeze(0)
+
+        x = x @ v.transpose(-1, -2)
+        x = x.transpose(-1, -2).contiguous()
+        return x
+
+class res_module(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=9, stride=1):
-        super(unit_tcn, self).__init__()
+        super(res_module, self).__init__()
         pad = int((kernel_size - 1) / 2)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=pad,
                               stride=stride)
@@ -223,19 +205,35 @@ class unit_tcn(nn.Module):
         return x
 
 
-class unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
-        super(unit_gcn, self).__init__()
+class st_attention(nn.Module):
+    def __init__(self, in_channels, out_channels, num_point, coff_embedding=4, adaptive=True, residual=True):
+        super(st_attention, self).__init__()
         inter_channels = out_channels // coff_embedding
         self.inter_c = inter_channels
         self.out_c = out_channels
         self.in_c = in_channels
         self.adaptive = adaptive
-        self.num_subset = A.shape[0]
-        # self.CTRGC = CTRGC(in_channels, out_channels)
-        self.convs = nn.ModuleList()
+        self.num_subset = 3
+        self.attention = nn.ModuleList()
+        if num_point == 25:
+            self.edges = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
+                          (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
+                          (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
+                          (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
+        elif num_point == 17:
+            self.edges = torch.tensor(
+                [[1, 2], [1, 3], [2, 4], [3, 5], [1, 6], [1, 7], [6, 8], [8, 10], [7, 9], [9, 11], [6, 7], [6, 12],
+                 [7, 13],
+                 [12, 13], [12, 14], [14, 16], [13, 15]])
+        # self.adjc_mat = torch.eye(num_point)
+        self.adjc_mat = torch.zeros(num_point, num_point)
+        for i in self.edges:
+            self.adjc_mat[i[0] - 1][i[1] - 1] = 1
+            # self.adjc_mat[i[1] - 1][i[0] - 1] = 1
+        self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
+        self.adjc_mat = nn.Parameter(self.adjc_mat, requires_grad=True)
         for i in range(self.num_subset):
-            self.convs.append(CTRGC(in_channels, out_channels))
+            self.attention.append(st_attention_block(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
@@ -244,13 +242,11 @@ class unit_gcn(nn.Module):
                     nn.BatchNorm2d(out_channels)
                 )
             else:
-                self.down = lambda x: x
+                # self.down = lambda x: x
+                self.down = return_x()
         else:
-            self.down = lambda x: 0
-        if self.adaptive:
-            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
-        else:
-            self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+            # self.down = lambda x: 0
+            self.down = return_0()
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU(inplace=True)
@@ -264,14 +260,9 @@ class unit_gcn(nn.Module):
 
     def forward(self, x):
         y = None
-        if self.adaptive:
-            A = self.PA
-        else:
-            A = self.A.cuda(x.get_device())
         for i in range(self.num_subset):
-            z = self.convs[i](x, A[i])
+            z = self.attention[i](x, self.adjc_mat[i])
             y = z + y if y is not None else z
-        # y = self.CTRGC(x, A)
         y = self.bn(y)
         z = self.down(x)
         y = torch.add(y, z)
@@ -282,20 +273,21 @@ class unit_gcn(nn.Module):
 
 
 class TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, A, time_length, num_point, stride=1, residual=True, adaptive=True, kernel_size=3, dilations=[1,2]):
+    def __init__(self, in_channels, out_channels, num_point, stride=1, residual=True, adaptive=True, kernel_size=3, dilations=[1, 2]):
         super(TCN_GCN_unit, self).__init__()
-        self.gcn1 = unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
-        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, time_length, num_point, kernel_size=kernel_size, stride=stride, dilations=dilations,
-                                            residual=False)
+        self.gcn1 = st_attention(in_channels, out_channels, num_point, adaptive=adaptive)
+        self.tcn1 = st_feature_extraction(out_channels, out_channels, num_point, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
-            self.residual = lambda x: 0
+            # self.residual = lambda x: 0
+            self.residual = return_0()
 
         elif (in_channels == out_channels) and (stride == 1):
-            self.residual = lambda x: x
+            # self.residual = lambda x: x
+            self.residual = return_x()
 
         else:
-            self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
+            self.residual = res_module(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
 
     def forward(self, x):
         x1 = self.gcn1(x)
@@ -311,23 +303,6 @@ class Model(nn.Module):
                  drop_out=0, adaptive=True):
         super(Model, self).__init__()
 
-        # if graph is None:
-        #     raise ValueError()
-        # else:
-        #     Graph = import_class(graph)
-        #     self.graph = Graph(**graph_args)
-
-        A = np.eye(25)
-        adj_matrix = np.zeros((25, 25))
-        adj_relation = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
-                    (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1),
-                    (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
-                    (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
-        for i in adj_relation:
-            # A[i[0] - 1, i[1] - 1] = 1
-            # A[i[1] - 1, i[0] - 1] = 1
-            adj_matrix[i[0] - 1, i[1] - 1] = 1
-        A = np.stack((A, adj_matrix.T, adj_matrix), 0)# 3,25,25
 
         self.num_class = num_class
         self.num_point = num_point
@@ -336,16 +311,16 @@ class Model(nn.Module):
 
         base_channel = 64
         time_length = 64
-        self.l1 = TCN_GCN_unit(in_channels, base_channel, A, time_length, num_point, residual=False, adaptive=adaptive)
-        self.l2 = TCN_GCN_unit(base_channel, base_channel, A, time_length, num_point, adaptive=adaptive)
+        self.l1 = TCN_GCN_unit(in_channels, base_channel, num_point, residual=False, adaptive=adaptive)
+        self.l2 = TCN_GCN_unit(base_channel, base_channel, num_point, adaptive=adaptive)
         # self.l3 = TCN_GCN_unit(base_channel, base_channel, A, time_length, num_point, adaptive=adaptive)
         # self.l4 = TCN_GCN_unit(base_channel, base_channel, A, time_length, num_point, adaptive=adaptive)
-        self.l5 = TCN_GCN_unit(base_channel, base_channel*2, A, time_length, num_point, stride=2, adaptive=adaptive)
-        self.l6 = TCN_GCN_unit(base_channel*2, base_channel*2, A, time_length//2, num_point, adaptive=adaptive)
+        self.l5 = TCN_GCN_unit(base_channel, base_channel*2, num_point, stride=2, adaptive=adaptive)
+        self.l6 = TCN_GCN_unit(base_channel*2, base_channel*2, num_point,  adaptive=adaptive)
         # self.l7 = TCN_GCN_unit(base_channel*2, base_channel*2, A, time_length//2, num_point, adaptive=adaptive)
-        self.l8 = TCN_GCN_unit(base_channel*2, base_channel*4, A, time_length//2, num_point, stride=2, adaptive=adaptive)
+        self.l8 = TCN_GCN_unit(base_channel*2, base_channel*4, num_point, stride=2, adaptive=adaptive)
         # self.l9 = TCN_GCN_unit(base_channel*4, base_channel*4, A, time_length//4, num_point, adaptive=adaptive)
-        self.l10 = TCN_GCN_unit(base_channel*4, base_channel*4, A, time_length//4, num_point, adaptive=adaptive)
+        self.l10 = TCN_GCN_unit(base_channel*4, base_channel*4, num_point, adaptive=adaptive)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))
@@ -354,7 +329,8 @@ class Model(nn.Module):
         if drop_out:
             self.drop_out = nn.Dropout(drop_out)
         else:
-            self.drop_out = lambda x: x
+            # self.drop_out = lambda x: x
+            self.drop_out = return_x()
 
     def forward(self, x):
         if len(x.shape) == 3:

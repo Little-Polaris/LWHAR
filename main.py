@@ -12,8 +12,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model, NewModel, MyModel1, temp
-from Model import MyModel
+from Model import Model, MyModel, MyModel1, NewModel, temp
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -48,8 +47,8 @@ if __name__ == '__main__':
     # 创建模型
     # model = Model.Model()
     # model = MyModel.Model()
-    model = temp.Model()
-    # model = MyModel1.Model()
+    # model = temp.Model()
+    model = MyModel1.Model()
     # model = NewModel.Model(config['num_class'], config['num_point'], config['dims'])
     model = model.to(device)
     logger.info(model)

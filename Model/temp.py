@@ -118,22 +118,23 @@ class st_feature_extraction_block(nn.Module):
         x = self.bn2(x)
         return x
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, channels, time_length, num_point, dropout=0.1):
         super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
+        # self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(time_length, channels)
-        position = torch.arange(0, time_length, dtype=torch.float).unsqueeze(1)  # 生成位置索引
+        pe = torch.zeros(num_point, channels)
+        position = torch.arange(0, num_point, dtype=torch.float).unsqueeze(1)  # 生成位置索引
         div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(1, 2).unsqueeze(-1)
+        pe = pe.unsqueeze(0).unsqueeze(0).permute(0, 3, 1, 2)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
         x = x + self.pe
-        return self.dropout(x)
+        return x
 
 
 class st_feature_extraction(nn.Module):
@@ -161,91 +162,91 @@ class st_feature_extraction(nn.Module):
         out = torch.cat((out1, out2, out3, out4), dim=1)
         return out
 
-class MultiScale_TemporalConv(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 time_length,
-                 num_point,
-                 kernel_size=3,
-                 stride=1,
-                 dilations=[1,2,3,4],
-                 residual=True,
-                 residual_kernel_size=1):
-
-        super().__init__()
-        assert out_channels % (len(dilations) + 2) == 0, '# out channels should be multiples of # branches'
-
-        # Multiple branches of temporal convolution
-        self.num_branches = len(dilations) + 2
-        # self.num_branches = len(dilations)
-        branch_channels = out_channels // self.num_branches
-        if type(kernel_size) == list:
-            assert len(kernel_size) == len(dilations)
-        else:
-            kernel_size = [kernel_size]*len(dilations)
-        self.time_length = time_length
-        self.num_point = num_point
-        # Temporal Convolution branches
-        self.branches = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(
-                    in_channels,
-                    branch_channels,
-                    kernel_size=1,
-                    padding=0),
-                nn.BatchNorm2d(branch_channels),
-                nn.ReLU(inplace=True),
-                TemporalConv(
-                    branch_channels,
-                    branch_channels,
-                    kernel_size=ks,
-                    stride=stride,
-                    dilation=dilation),
-            )
-            for ks, dilation in zip(kernel_size, dilations)
-        ])
-
-        # Additional Max & 1x1 branch
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
-            nn.BatchNorm2d(branch_channels),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
-            nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
-        ))
-
-        self.branches.append(nn.Sequential(
-            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
-            nn.BatchNorm2d(branch_channels)
-        ))
-
-        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
-        # Residual connection
-        if not residual:
-            # self.residual = lambda x: 0
-            self.residual = return_0()
-        elif (in_channels == out_channels) and (stride == 1):
-            # self.residual = lambda x: x
-            self.residual = return_x()
-        else:
-            self.residual = TemporalConv(in_channels, out_channels, kernel_size=residual_kernel_size, stride=stride)
-
-        # initialize
-        self.apply(weights_init)
-
-    def forward(self, x):
-        # Input dim: (N,C,T,V)
-        res = self.residual(x)
-        branch_outs = []
-        for i in range(len(self.branches)):
-            x_permuted = self.permutations[i](x)
-            out = self.branches[i](x_permuted)
-            branch_outs.append(out)
-
-        out = torch.cat(branch_outs, dim=1)
-        out += res
-        return out
+# class MultiScale_TemporalConv(nn.Module):
+#     def __init__(self,
+#                  in_channels,
+#                  out_channels,
+#                  time_length,
+#                  num_point,
+#                  kernel_size=3,
+#                  stride=1,
+#                  dilations=[1,2,3,4],
+#                  residual=True,
+#                  residual_kernel_size=1):
+#
+#         super().__init__()
+#         assert out_channels % (len(dilations) + 2) == 0, '# out channels should be multiples of # branches'
+#
+#         # Multiple branches of temporal convolution
+#         self.num_branches = len(dilations) + 2
+#         # self.num_branches = len(dilations)
+#         branch_channels = out_channels // self.num_branches
+#         if type(kernel_size) == list:
+#             assert len(kernel_size) == len(dilations)
+#         else:
+#             kernel_size = [kernel_size]*len(dilations)
+#         self.time_length = time_length
+#         self.num_point = num_point
+#         # Temporal Convolution branches
+#         self.branches = nn.ModuleList([
+#             nn.Sequential(
+#                 nn.Conv2d(
+#                     in_channels,
+#                     branch_channels,
+#                     kernel_size=1,
+#                     padding=0),
+#                 nn.BatchNorm2d(branch_channels),
+#                 nn.ReLU(inplace=True),
+#                 TemporalConv(
+#                     branch_channels,
+#                     branch_channels,
+#                     kernel_size=ks,
+#                     stride=stride,
+#                     dilation=dilation),
+#             )
+#             for ks, dilation in zip(kernel_size, dilations)
+#         ])
+#
+#         # Additional Max & 1x1 branch
+#         self.branches.append(nn.Sequential(
+#             nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
+#             nn.BatchNorm2d(branch_channels),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
+#             nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
+#         ))
+#
+#         self.branches.append(nn.Sequential(
+#             nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
+#             nn.BatchNorm2d(branch_channels)
+#         ))
+#
+#         self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
+#         # Residual connection
+#         if not residual:
+#             # self.residual = lambda x: 0
+#             self.residual = return_0()
+#         elif (in_channels == out_channels) and (stride == 1):
+#             # self.residual = lambda x: x
+#             self.residual = return_x()
+#         else:
+#             self.residual = TemporalConv(in_channels, out_channels, kernel_size=residual_kernel_size, stride=stride)
+#
+#         # initialize
+#         self.apply(weights_init)
+#
+#     def forward(self, x):
+#         # Input dim: (N,C,T,V)
+#         res = self.residual(x)
+#         branch_outs = []
+#         for i in range(len(self.branches)):
+#             x_permuted = self.permutations[i](x)
+#             out = self.branches[i](x_permuted)
+#             branch_outs.append(out)
+#
+#         out = torch.cat(branch_outs, dim=1)
+#         out += res
+#         return out
 
 class dot_product_attention(nn.Module):
     def __init__(self):
