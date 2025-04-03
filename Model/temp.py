@@ -1,10 +1,7 @@
 import math
 
-import numpy as np
 import torch
 from torch import nn
-from torch.autograd import Variable
-from torch.amp import autocast
 
 
 def import_class(name):
@@ -49,6 +46,19 @@ def weights_init(m):
         if hasattr(m, 'bias') and m.bias is not None:
             m.bias.data.fill_(0)
 
+class return_x(nn.Module):
+    def __init__(self):
+        super(return_x, self).__init__()
+
+    def forward(self, x):
+        return x
+
+class return_0(nn.Module):
+    def __init__(self):
+        super(return_0, self).__init__()
+
+    def forward(self, x):
+        return 0
 
 class TemporalConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1):
@@ -81,6 +91,76 @@ class Permutation(nn.Module):
         x_permuted = torch.gather(x, 3, permutation_matrix)
         return x_permuted
 
+class st_feature_extraction_block(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None):
+        super(st_feature_extraction_block, self).__init__()
+        self.stride = stride if isinstance(stride, tuple) else (stride, 1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu1 = nn.ReLU()
+        if pooling == 'max':
+            self.pooling = nn.MaxPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.stride = 1
+        elif pooling == 'avg':
+            self.pooling = nn.AvgPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.stride = 1
+        else:
+            self.pooling = return_x()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.pooling(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        return x
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, channels, time_length, num_point, dropout=0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(time_length, channels)
+        position = torch.arange(0, time_length, dtype=torch.float).unsqueeze(1)  # 生成位置索引
+        div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(1, 2).unsqueeze(-1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe
+        return self.dropout(x)
+
+
+class st_feature_extraction(nn.Module):
+    def __init__(self , in_channels, out_channels, num_point, time_length, stride=1):
+        super(st_feature_extraction, self).__init__()
+        self.num_point = num_point
+        self.pe = PositionalEncoding(in_channels, time_length, num_point)
+        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
+        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1)
+        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2)
+        self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'max')
+        self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'avg')
+        self.apply(weights_init)
+
+    def forward(self, x):
+        x = self.pe(x)
+        x_permuted = self.permutations[0](x)
+        out1 = self.block1(x_permuted)
+        x_permuted = self.permutations[1](x)
+        out2 = self.block2(x_permuted)
+        x_permuted = self.permutations[2](x)
+        out3 = self.block3(x_permuted)
+        x_permuted = self.permutations[3](x)
+        out4 = self.block4(x_permuted)
+        out = torch.cat((out1, out2, out3, out4), dim=1)
+        return out
+
 class MultiScale_TemporalConv(nn.Module):
     def __init__(self,
                  in_channels,
@@ -97,8 +177,8 @@ class MultiScale_TemporalConv(nn.Module):
         assert out_channels % (len(dilations) + 2) == 0, '# out channels should be multiples of # branches'
 
         # Multiple branches of temporal convolution
-        # self.num_branches = len(dilations) + 2
-        self.num_branches = len(dilations)
+        self.num_branches = len(dilations) + 2
+        # self.num_branches = len(dilations)
         branch_channels = out_channels // self.num_branches
         if type(kernel_size) == list:
             assert len(kernel_size) == len(dilations)
@@ -127,25 +207,27 @@ class MultiScale_TemporalConv(nn.Module):
         ])
 
         # Additional Max & 1x1 branch
-        # self.branches.append(nn.Sequential(
-        #     nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
-        #     nn.BatchNorm2d(branch_channels),
-        #     nn.ReLU(inplace=True),
-        #     nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
-        #     nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
-        # ))
-        #
-        # self.branches.append(nn.Sequential(
-        #     nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
-        #     nn.BatchNorm2d(branch_channels)
-        # ))
+        self.branches.append(nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=(stride, 1), padding=1),
+            nn.BatchNorm2d(branch_channels)  # 为什么还要加bn
+        ))
+
+        self.branches.append(nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0, stride=(stride, 1)),
+            nn.BatchNorm2d(branch_channels)
+        ))
 
         self.permutations = nn.ModuleList([Permutation(self.num_point) for i in self.branches])
         # Residual connection
         if not residual:
-            self.residual = lambda x: 0
+            # self.residual = lambda x: 0
+            self.residual = return_0()
         elif (in_channels == out_channels) and (stride == 1):
-            self.residual = lambda x: x
+            # self.residual = lambda x: x
+            self.residual = return_x()
         else:
             self.residual = TemporalConv(in_channels, out_channels, kernel_size=residual_kernel_size, stride=stride)
 
@@ -193,7 +275,7 @@ class st_attention(nn.Module):
         self.W_K = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
         self.W_Q = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
         self.W_V = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
-        self.attention = dot_product_attention()
+        self.dot_production_attention = dot_product_attention()
         self.ffn = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor([0], dtype=torch.float32))
         if num_point == 25:
@@ -218,17 +300,11 @@ class st_attention(nn.Module):
                 bn_init(m, 1)
 
     def forward(self, x):
-        # x1, x2 = self.conv1(x), self.conv2(x)
-        # x1, x2 = x1.unsqueeze(-1) @ x2.unsqueeze(-2), x1.unsqueeze(-1) - x2.unsqueeze(-2)
-        # x1 = self.tanh(x1 * self.alpha + x2 * (1 - self.alpha)) + self.beta * A.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        # x1 = x1.mean(-1)
-        # x1 = self.conv3(x1)
-        # x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
         k = self.W_K(x).mean(-2)
         q = self.W_Q(x).mean(-2)
         v = self.W_V(x)
 
-        x = self.attention(k, q)
+        x = self.dot_production_attention(k, q)
 
         x = self.ffn(x)
 
@@ -265,9 +341,9 @@ class unit_gcn(nn.Module):
         self.adaptive = adaptive
         self.num_subset = 3
         # self.CTRGC = CTRGC(in_channels, out_channels)
-        self.convs = nn.ModuleList()
+        self.attention = nn.ModuleList()
         for i in range(self.num_subset):
-            self.convs.append(st_attention(in_channels, out_channels, num_point))
+            self.attention.append(st_attention(in_channels, out_channels, num_point))
 
         if residual:
             if in_channels != out_channels:
@@ -276,9 +352,11 @@ class unit_gcn(nn.Module):
                     nn.BatchNorm2d(out_channels)
                 )
             else:
-                self.down = lambda x: x
+                # self.down = lambda x: x
+                self.down = return_x()
         else:
-            self.down = lambda x: 0
+            # self.down = lambda x: 0
+            self.down = return_0()
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU(inplace=True)
@@ -293,7 +371,7 @@ class unit_gcn(nn.Module):
     def forward(self, x):
         y = None
         for i in range(self.num_subset):
-            z = self.convs[i](x)
+            z = self.attention[i](x)
             y = z + y if y is not None else z
         # y = self.CTRGC(x, A)
         y = self.bn(y)
@@ -309,14 +387,17 @@ class TCN_GCN_unit(nn.Module):
     def __init__(self, in_channels, out_channels, num_point, time_length, stride=1, residual=True, adaptive=True, kernel_size=3, dilations=[1, 2]):
         super(TCN_GCN_unit, self).__init__()
         self.gcn1 = unit_gcn(in_channels, out_channels, num_point, adaptive=adaptive)
-        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, time_length, num_point, kernel_size=kernel_size, stride=stride, dilations=dilations,
-                                            residual=False)
+        # self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, time_length, num_point, kernel_size=kernel_size, stride=stride, dilations=dilations,
+        #                                     residual=False)
+        self.tcn1 = st_feature_extraction(out_channels, out_channels, num_point, time_length, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
-            self.residual = lambda x: 0
+            # self.residual = lambda x: 0
+            self.residual = return_0()
 
         elif (in_channels == out_channels) and (stride == 1):
-            self.residual = lambda x: x
+            # self.residual = lambda x: x
+            self.residual = return_x()
 
         else:
             self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
@@ -361,7 +442,8 @@ class Model(nn.Module):
         if drop_out:
             self.drop_out = nn.Dropout(drop_out)
         else:
-            self.drop_out = lambda x: x
+            # self.drop_out = lambda x: x
+            self.drop_out = return_x()
 
     def forward(self, x):
         if len(x.shape) == 3:
