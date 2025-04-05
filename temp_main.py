@@ -11,7 +11,7 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model
+from Model import ctrgcn
 from utils.MyDataLoader import MyDataLoader
 from utils.miniLogger import miniLogger
 

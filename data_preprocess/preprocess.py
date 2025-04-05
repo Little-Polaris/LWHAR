@@ -36,12 +36,12 @@ if __name__ == '__main__':
         with open(os.path.join(config['binary_data_dir'], f'{config["dataset_name"]}_cv_processed_data.pkl'), 'wb') as f:
             pickle.dump({'cv_train_data': cv_train_data, 'cv_test_data': cv_test_data}, f)
     elif config['dataset_name'] == 'UAV':
-        cs_train_data, cs_test_data = uav_split_data(processed_data, config, 'CS')
-        rand_train_data, rand_test_data = uav_split_data(processed_data, config, 'RAND')
-        with open(os.path.join(config['binary_data_dir'], f'{config["dataset_name"]}_cs_processed_data.pkl'), 'wb') as f:
-            pickle.dump({'cs_train_data': cs_train_data, 'cs_test_data': cs_test_data}, f)
-        with open(os.path.join(config['binary_data_dir'], f'{config["dataset_name"]}_rand_processed_data.pkl'), 'wb') as f:
-            pickle.dump({'rand_train_data': rand_train_data, 'rand_test_data': rand_test_data}, f)
+        pro1_train_data, pro1_test_data = uav_split_data(processed_data, config, 'pro1')
+        pro2_train_data, pro2_test_data = uav_split_data(processed_data, config, 'pro2')
+        with open(os.path.join(config['binary_data_dir'], f'{config["dataset_name"]}_pro1_processed_data.pkl'), 'wb') as f:
+            pickle.dump({'pro1_train_data': pro1_train_data, 'pro1_test_data': pro1_test_data}, f)
+        with open(os.path.join(config['binary_data_dir'], f'{config["dataset_name"]}_pro2_processed_data.pkl'), 'wb') as f:
+            pickle.dump({'pro2_train_data': pro2_train_data, 'pro2_test_data': pro2_test_data}, f)
 
     end_time = datetime.now()
     duration = end_time - start_time

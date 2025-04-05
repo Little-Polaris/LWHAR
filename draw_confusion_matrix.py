@@ -11,7 +11,7 @@ from torchprofile import profile_macs
 from tqdm import tqdm
 
 from Model import MyModel
-from Model import Model
+from Model import ctrgcn
 from plot_confusion_matrix import plot_confusion_matrix
 from utils.MyDataLoader import MyDataLoader
 

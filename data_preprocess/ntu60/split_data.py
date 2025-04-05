@@ -30,8 +30,8 @@ def split_data(data: dict[str: str, str: int, str: int, str: int, str: np.ndarra
         for i in test_camera_index:
             test_data_index.extend(list(np.where(cameras == i)[0]))
 
-    train_data = [data[i]['data'].reshape((data[i]['data'].shape[0], 2, config['node_num'], config['dims'])).transpose(3, 0, 2, 1) for i in train_data_index]
+    train_data = [data[i]['data'].reshape((data[i]['data'].shape[0], 2, config['num_point'], config['dims'])).transpose(3, 0, 2, 1) for i in train_data_index]
     train_labels = [data[i]['label'] for i in train_data_index]
-    test_data = [data[i]['data'].reshape((data[i]['data'].shape[0], 2, config['node_num'], config['dims'])).transpose(3, 0, 2, 1) for i in test_data_index]
+    test_data = [data[i]['data'].reshape((data[i]['data'].shape[0], 2, config['num_point'], config['dims'])).transpose(3, 0, 2, 1) for i in test_data_index]
     test_labels = [data[i]['label'] for i in test_data_index]
     return {'data': train_data, 'label': train_labels}, {'data': test_data, 'label': test_labels}

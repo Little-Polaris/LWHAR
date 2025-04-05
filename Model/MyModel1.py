@@ -110,9 +110,9 @@ class pos_encoding(nn.Module):
         return x
 
 
-class st_feature_extraction(nn.Module):
+class sts_feature_extraction(nn.Module):
     def __init__(self , in_channels, out_channels, num_point, stride=1):
-        super(st_feature_extraction, self).__init__()
+        super(sts_feature_extraction, self).__init__()
         self.num_point = num_point
         self.pe = pos_encoding(in_channels, num_point)
         self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
@@ -189,7 +189,7 @@ class st_attention_block(nn.Module):
         return x
 
 class res_module(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=9, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride):
         super(res_module, self).__init__()
         pad = int((kernel_size - 1) / 2)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=pad,
@@ -206,14 +206,9 @@ class res_module(nn.Module):
 
 
 class st_attention(nn.Module):
-    def __init__(self, in_channels, out_channels, num_point, coff_embedding=4, adaptive=True, residual=True):
+    def __init__(self, in_channels, out_channels, num_point, residual=True):
         super(st_attention, self).__init__()
-        inter_channels = out_channels // coff_embedding
-        self.inter_c = inter_channels
-        self.out_c = out_channels
-        self.in_c = in_channels
-        self.adaptive = adaptive
-        self.num_subset = 3
+        self.head_num = 3
         self.attention = nn.ModuleList()
         if num_point == 25:
             self.edges = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6),
@@ -225,28 +220,24 @@ class st_attention(nn.Module):
                 [[1, 2], [1, 3], [2, 4], [3, 5], [1, 6], [1, 7], [6, 8], [8, 10], [7, 9], [9, 11], [6, 7], [6, 12],
                  [7, 13],
                  [12, 13], [12, 14], [14, 16], [13, 15]])
-        # self.adjc_mat = torch.eye(num_point)
         self.adjc_mat = torch.zeros(num_point, num_point)
         for i in self.edges:
             self.adjc_mat[i[0] - 1][i[1] - 1] = 1
-            # self.adjc_mat[i[1] - 1][i[0] - 1] = 1
         self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
         self.adjc_mat = nn.Parameter(self.adjc_mat, requires_grad=True)
-        for i in range(self.num_subset):
+        for i in range(self.head_num):
             self.attention.append(st_attention_block(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
-                self.down = nn.Sequential(
+                self.res = nn.Sequential(
                     nn.Conv2d(in_channels, out_channels, 1),
                     nn.BatchNorm2d(out_channels)
                 )
             else:
-                # self.down = lambda x: x
-                self.down = return_x()
+                self.res = return_x()
         else:
-            # self.down = lambda x: 0
-            self.down = return_0()
+            self.res = return_0()
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU(inplace=True)
@@ -259,33 +250,25 @@ class st_attention(nn.Module):
         bn_init(self.bn, 1e-6)
 
     def forward(self, x):
-        y = None
-        for i in range(self.num_subset):
-            z = self.attention[i](x, self.adjc_mat[i])
-            y = z + y if y is not None else z
-        y = self.bn(y)
-        z = self.down(x)
-        y = torch.add(y, z)
-        y = self.relu(y)
+        out = 0
+        for i in range(self.head_num):
+            out += self.attention[i](x, self.adjc_mat[i])
+        out = self.bn(out)
+        out += self.res(x)
+        out = self.relu(out)
+        return out
 
 
-        return y
-
-
-class TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, num_point, stride=1, residual=True, adaptive=True, kernel_size=3, dilations=[1, 2]):
-        super(TCN_GCN_unit, self).__init__()
-        self.gcn1 = st_attention(in_channels, out_channels, num_point, adaptive=adaptive)
-        self.tcn1 = st_feature_extraction(out_channels, out_channels, num_point, stride=stride)
+class sts_attention(nn.Module):
+    def __init__(self, in_channels, out_channels, num_point, stride=1, residual=True):
+        super(sts_attention, self).__init__()
+        self.gcn1 = st_attention(in_channels, out_channels, num_point)
+        self.tcn1 = sts_feature_extraction(out_channels, out_channels, num_point, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
-            # self.residual = lambda x: 0
             self.residual = return_0()
-
         elif (in_channels == out_channels) and (stride == 1):
-            # self.residual = lambda x: x
             self.residual = return_x()
-
         else:
             self.residual = res_module(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
 
@@ -294,7 +277,6 @@ class TCN_GCN_unit(nn.Module):
         x2 = self.tcn1(x1)
         res = self.residual(x)
         y = self.relu(x2 + res)
-        # y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
         return y
 
 
@@ -307,29 +289,21 @@ class Model(nn.Module):
         self.num_class = num_class
         self.num_point = num_point
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
-        # self.data_bn2 = nn.BatchNorm1d(num_person * in_channels * num_point)
 
         base_channel = 64
-        time_length = 64
-        self.l1 = TCN_GCN_unit(in_channels, base_channel, num_point, residual=False, adaptive=adaptive)
-        self.l2 = TCN_GCN_unit(base_channel, base_channel, num_point, adaptive=adaptive)
-        # self.l3 = TCN_GCN_unit(base_channel, base_channel, A, time_length, num_point, adaptive=adaptive)
-        # self.l4 = TCN_GCN_unit(base_channel, base_channel, A, time_length, num_point, adaptive=adaptive)
-        self.l5 = TCN_GCN_unit(base_channel, base_channel*2, num_point, stride=2, adaptive=adaptive)
-        self.l6 = TCN_GCN_unit(base_channel*2, base_channel*2, num_point,  adaptive=adaptive)
-        # self.l7 = TCN_GCN_unit(base_channel*2, base_channel*2, A, time_length//2, num_point, adaptive=adaptive)
-        self.l8 = TCN_GCN_unit(base_channel*2, base_channel*4, num_point, stride=2, adaptive=adaptive)
-        # self.l9 = TCN_GCN_unit(base_channel*4, base_channel*4, A, time_length//4, num_point, adaptive=adaptive)
-        self.l10 = TCN_GCN_unit(base_channel*4, base_channel*4, num_point, adaptive=adaptive)
+        self.l1 = sts_attention(in_channels, base_channel, num_point, residual=False)
+        self.l2 = sts_attention(base_channel, base_channel, num_point)
+        self.l3 = sts_attention(base_channel, base_channel * 2, num_point, stride=2)
+        self.l4 = sts_attention(base_channel * 2, base_channel * 2, num_point)
+        self.l5 = sts_attention(base_channel * 2, base_channel * 4, num_point, stride=2)
+        self.l6 = sts_attention(base_channel * 4, base_channel * 4, num_point)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))
-        # bn_init(self.data_bn2, 1)
         bn_init(self.data_bn, 1)
         if drop_out:
             self.drop_out = nn.Dropout(drop_out)
         else:
-            # self.drop_out = lambda x: x
             self.drop_out = return_x()
 
     def forward(self, x):
@@ -339,32 +313,15 @@ class Model(nn.Module):
         N, C, T, V, M = x.size()
 
         x = x.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V * C, T)
-        # is_one_person = torch.all(x == 0, dim=2)[:, 75]
-        # one_person_index = torch.nonzero(is_one_person).squeeze()
-        # two_person_index = torch.nonzero(~is_one_person).squeeze()
-        # x1 = x[one_person_index].reshape(-1, M*V*C, T)
-        # x2 = x[two_person_index].reshape(-1, M*V*C, T)
-        # if one_person_index.numel() > 1:
-        #     x1 = self.data_bn1(x1)
-        # if two_person_index.numel() > 1:
-        #     x2 = self.data_bn2(x2)
-        # normalized_x = torch.zeros_like(x)
-        # normalized_x[one_person_index] = x1
-        # normalized_x[two_person_index] = x2
         normalized_x = self.data_bn(x)
         x = normalized_x.view(N, M, V, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V)
         x = self.l1(x)
         x = self.l2(x)
-        # x = self.l3(x)
-        # x = self.l4(x)
+        x = self.l3(x)
+        x = self.l4(x)
         x = self.l5(x)
         x = self.l6(x)
-        # x = self.l7(x)
-        x = self.l8(x)
-        # x = self.l9(x)
-        x = self.l10(x)
 
-        # N*M,C,T,V
         c_new = x.size(1)
         x = x.view(N, M, c_new, -1)
         x = x.mean(3).mean(1)

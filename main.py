@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import random
+import warnings
 from collections import OrderedDict
 from datetime import datetime
 
@@ -12,7 +13,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model, MyModel, MyModel1, NewModel, temp
+from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -43,12 +44,13 @@ if __name__ == '__main__':
     start_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     writer = SummaryWriter(f'logs/{start_time}')
     logger = miniLogger(start_time)
+    logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
-    # model = Model.Model()
+    model = Model.Model(config['num_class'], config['num_point'], config['num_person'], config['edges'], config['dims'])
     # model = MyModel.Model()
     # model = temp.Model()
-    model = MyModel1.Model()
+    # model = MyModel1.Model()
     # model = NewModel.Model(config['num_class'], config['num_point'], config['dims'])
     model = model.to(device)
     logger.info(model)
@@ -97,7 +99,9 @@ if __name__ == '__main__':
             current_learning_rate = adjust_learning_rate(i)
         # 训练模型
         model.train()
+        temp = 0
         for data in tqdm(train_data_loader):
+            temp+=1
             inputs, labels, _= data
             inputs = inputs.float().to(device)
             labels = labels.long().to(device)
