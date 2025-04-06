@@ -162,7 +162,7 @@ class st_attention_block(nn.Module):
         self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.dot_production_attention = dot_product_attention()
         self.ffn = nn.Conv2d(rel_channels, out_channels, kernel_size=1)
-        self.alpha = nn.Parameter(torch.tensor([0], dtype=torch.float32))
+        self.alpha = nn.Parameter(torch.tensor([1], dtype=torch.float32))
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
