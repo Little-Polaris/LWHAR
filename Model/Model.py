@@ -66,7 +66,7 @@ class Permutation(nn.Module):
         return x_permuted
 
 class st_feature_extraction_block(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None, ffn=False):
         super(st_feature_extraction_block, self).__init__()
         self.stride = stride if isinstance(stride, tuple) else (stride, 1)
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
@@ -80,7 +80,10 @@ class st_feature_extraction_block(nn.Module):
             self.stride = 1
         else:
             self.pooling = return_x()
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
+        if ffn:
+            self.ffn = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
+        else:
+            self.ffn = return_x()
         self.bn2 = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -88,7 +91,7 @@ class st_feature_extraction_block(nn.Module):
         x = self.bn1(x)
         x = self.relu1(x)
         x = self.pooling(x)
-        x = self.conv2(x)
+        x = self.ffn(x)
         x = self.bn2(x)
         return x
 
@@ -116,8 +119,8 @@ class sts_feature_extraction(nn.Module):
         self.num_point = num_point
         self.pe = pos_encoding(in_channels, num_point)
         self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
-        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1)
-        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2)
+        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1, ffn=True)
+        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2, ffn=True)
         self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'max')
         self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'avg')
         self.apply(weights_init)
@@ -260,10 +263,10 @@ class sts_attention(nn.Module):
             self.residual = res_module(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
 
     def forward(self, x):
-        x1 = self.st_attn(x)
-        x2 = self.sts_fe(x1)
         res = self.residual(x)
-        y = self.relu(x2 + res)
+        x = self.st_attn(x)
+        x = self.sts_fe(x)
+        y = self.relu(x + res)
         return y
 
 

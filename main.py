@@ -47,8 +47,9 @@ if __name__ == '__main__':
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
-    model = Model.Model(config['num_class'], config['num_point'],
-                        config['num_person'], config['edges'], config['dims'])
+    # model = Model.Model(config['num_class'], config['num_point'],
+    #                     config['num_person'], config['edges'], config['dims'])
+    model = ctrgcn.Model()
     # model = MyModel.Model()
     # model = temp.Model()
     # model = MyModel1.Model()
