@@ -53,91 +53,6 @@ class return_0(nn.Module):
         return 0
 
 
-class Permutation(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.permutation_matrix = nn.Parameter(torch.arange(dim, dtype=torch.float32))
-
-    def forward(self, x):
-        permutation_matrix = self.permutation_matrix.to(torch.long)
-        permutation_matrix = permutation_matrix.reshape(1, 1, 1, -1)
-        permutation_matrix = permutation_matrix.repeat(x.shape[0], x.shape[1], x.shape[2], 1)
-        x_permuted = torch.gather(x, 3, permutation_matrix)
-        return x_permuted
-
-class st_feature_extraction_block(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None, ffn=False):
-        super(st_feature_extraction_block, self).__init__()
-        self.stride = stride if isinstance(stride, tuple) else (stride, 1)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu1 = nn.ReLU()
-        if pooling == 'max':
-            self.pooling = nn.MaxPool2d(kernel_size=3, stride=self.stride, padding=1)
-            self.stride = 1
-        elif pooling == 'avg':
-            self.pooling = nn.AvgPool2d(kernel_size=3, stride=self.stride, padding=1)
-            self.stride = 1
-        else:
-            self.pooling = return_x()
-        if ffn:
-            self.ffn = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
-        else:
-            self.ffn = return_x()
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu1(x)
-        x = self.pooling(x)
-        x = self.ffn(x)
-        x = self.bn2(x)
-        return x
-
-
-class pos_encoding(nn.Module):
-    def __init__(self, channels, num_point):
-        super(pos_encoding, self).__init__()
-
-        pe = torch.zeros(num_point, channels)
-        position = torch.arange(0, num_point, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).unsqueeze(0).permute(0, 3, 1, 2)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + self.pe
-        return x
-
-
-class sts_feature_extraction(nn.Module):
-    def __init__(self , in_channels, out_channels, num_point, stride=1):
-        super(sts_feature_extraction, self).__init__()
-        self.num_point = num_point
-        self.pe = pos_encoding(in_channels, num_point)
-        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
-        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1, ffn=True)
-        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2, ffn=True)
-        self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'max')
-        self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'avg')
-        self.apply(weights_init)
-
-    def forward(self, x):
-        x = self.pe(x)
-        x_permuted = self.permutations[0](x)
-        out1 = self.block1(x_permuted)
-        x_permuted = self.permutations[1](x)
-        out2 = self.block2(x_permuted)
-        x_permuted = self.permutations[2](x)
-        out3 = self.block3(x_permuted)
-        x_permuted = self.permutations[3](x)
-        out4 = self.block4(x_permuted)
-        out = torch.cat((out1, out2, out3, out4), dim=1)
-        return out
-
 class dot_product_attention(nn.Module):
     def __init__(self):
         super(dot_product_attention, self).__init__()
@@ -187,6 +102,91 @@ class st_attention_block(nn.Module):
         x = x @ v.transpose(-1, -2)
         x = x.transpose(-1, -2).contiguous()
         return x
+
+class pos_encoding(nn.Module):
+    def __init__(self, channels, num_point):
+        super(pos_encoding, self).__init__()
+
+        pe = torch.zeros(num_point, channels)
+        position = torch.arange(0, num_point, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).unsqueeze(0).permute(0, 3, 1, 2)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe
+        return x
+
+class Permutation(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.permutation_matrix = nn.Parameter(torch.arange(dim, dtype=torch.float32))
+
+    def forward(self, x):
+        permutation_matrix = self.permutation_matrix.to(torch.long)
+        permutation_matrix = permutation_matrix.reshape(1, 1, 1, -1)
+        permutation_matrix = permutation_matrix.repeat(x.shape[0], x.shape[1], x.shape[2], 1)
+        x_permuted = torch.gather(x, 3, permutation_matrix)
+        return x_permuted
+
+class st_feature_extraction_block(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, pooling=None, ffn=False):
+        super(st_feature_extraction_block, self).__init__()
+        self.stride = stride if isinstance(stride, tuple) else (stride, 1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu1 = nn.ReLU()
+        if pooling == 'max':
+            self.pooling = nn.MaxPool2d(kernel_size=3, stride=self.stride, padding=1)
+            self.stride = 1
+        elif pooling == 'avg':
+            self.pooling = nn.AvgPool2d(kernel_size=3, stride=self.stride, padding=1)
+            self.stride = 1
+        else:
+            self.pooling = return_x()
+        if ffn:
+            self.ffn = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=self.stride, padding=padding, dilation=dilation)
+        else:
+            self.ffn = return_x()
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.pooling(x)
+        x = self.ffn(x)
+        x = self.bn2(x)
+        return x
+
+class sts_feature_extraction(nn.Module):
+    def __init__(self , in_channels, out_channels, num_point, stride=1):
+        super(sts_feature_extraction, self).__init__()
+        self.num_point = num_point
+        self.pe = pos_encoding(in_channels, num_point)
+        self.permutations = nn.ModuleList([Permutation(self.num_point) for i in range(4)])
+        self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 1, 1, ffn=True)
+        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, 3, stride, 2, 2, ffn=True)
+        self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'max')
+        self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 0, 1, 'avg')
+        self.apply(weights_init)
+
+    def forward(self, x):
+        x = self.pe(x)
+        x_permuted = self.permutations[0](x)
+        out1 = self.block1(x_permuted)
+        x_permuted = self.permutations[1](x)
+        out2 = self.block2(x_permuted)
+        x_permuted = self.permutations[2](x)
+        out3 = self.block3(x_permuted)
+        x_permuted = self.permutations[3](x)
+        out4 = self.block4(x_permuted)
+        out = torch.cat((out1, out2, out3, out4), dim=1)
+        return out
+
+
 
 class res_module(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride):
