@@ -73,10 +73,10 @@ class st_feature_extraction_block(nn.Module):
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu1 = nn.ReLU()
         if pooling == 'max':
-            self.pooling = nn.MaxPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.pooling = nn.MaxPool2d(kernel_size=3, stride=self.stride, padding=1)
             self.stride = 1
         elif pooling == 'avg':
-            self.pooling = nn.AvgPool2d(kernel_size=kernel_size, stride=self.stride, padding=padding)
+            self.pooling = nn.AvgPool2d(kernel_size=3, stride=self.stride, padding=1)
             self.stride = 1
         else:
             self.pooling = return_x()
