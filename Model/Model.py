@@ -150,12 +150,13 @@ class dot_product_attention(nn.Module):
         return x
 
 class st_attention_block(nn.Module):
-    def __init__(self, in_channels, out_channels, rel_reduction=8):
+    def __init__(self, in_channels, out_channels, adjc_mat, rel_reduction=8):
         super(st_attention_block, self).__init__()
         if in_channels < 16:
             rel_channels = 8
         else:
             rel_channels = in_channels // rel_reduction
+        self.adjc_mat = nn.Parameter(adjc_mat)
         self.W_K = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
         self.W_Q = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
         self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
@@ -178,7 +179,7 @@ class st_attention_block(nn.Module):
 
         x = self.ffn(x)
 
-        x = self.alpha * x + adjc_mat.unsqueeze(0).unsqueeze(0)
+        x = self.alpha * x + self.adjc_mat.unsqueeze(0).unsqueeze(0)
 
         x = x @ v.transpose(-1, -2)
         x = x.transpose(-1, -2).contiguous()
@@ -202,13 +203,16 @@ class res_module(nn.Module):
 
 
 class st_attention(nn.Module):
-    def __init__(self, in_channels, out_channels, adjc_mat, head_num=3, residual=True):
+    def __init__(self, in_channels, out_channels, num_point, edges, head_num=3, residual=True):
         super(st_attention, self).__init__()
         self.head_num = head_num
         self.attention = nn.ModuleList()
-        self.adjc_mat = nn.Parameter(adjc_mat.clone().detach().requires_grad_(True))
+        self.adjc_mat = torch.zeros(num_point, num_point)
+        for i in edges:
+            self.adjc_mat[i[0] - 1][i[1] - 1] = 1
+        self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
         for i in range(self.head_num):
-            self.attention.append(st_attention_block(in_channels, out_channels))
+            self.attention.append(st_attention_block(in_channels, out_channels, self.adjc_mat[i]))
 
         if residual:
             if in_channels != out_channels:
@@ -243,9 +247,9 @@ class st_attention(nn.Module):
 
 
 class sts_attention(nn.Module):
-    def __init__(self, in_channels, out_channels, num_point, adjc_mat, stride=1, residual=True):
+    def __init__(self, in_channels, out_channels, num_point, edges, stride=1, residual=True):
         super(sts_attention, self).__init__()
-        self.st_attn = st_attention(in_channels, out_channels, adjc_mat)
+        self.st_attn = st_attention(in_channels, out_channels, num_point, edges)
         self.sts_fe = sts_feature_extraction(out_channels, out_channels, num_point, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
@@ -269,20 +273,20 @@ class Model(nn.Module):
         super(Model, self).__init__()
 
         self.num_point = num_point
-        self.adjc_mat = torch.zeros(num_point, num_point)
-        for i in edges:
-            self.adjc_mat[i[0] - 1][i[1] - 1] = 1
-        self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
+        # self.adjc_mat = torch.zeros(num_point, num_point)
+        # for i in edges:
+        #     self.adjc_mat[i[0] - 1][i[1] - 1] = 1
+        # self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
 
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
 
         base_channel = 64
-        self.l1 = sts_attention(in_channels, base_channel, num_point, self.adjc_mat, residual=False)
-        self.l2 = sts_attention(base_channel, base_channel, num_point, self.adjc_mat)
-        self.l3 = sts_attention(base_channel, base_channel * 2, num_point, self.adjc_mat, stride=2)
-        self.l4 = sts_attention(base_channel * 2, base_channel * 2, num_point, self.adjc_mat)
-        self.l5 = sts_attention(base_channel * 2, base_channel * 4, num_point, self.adjc_mat, stride=2)
-        self.l6 = sts_attention(base_channel * 4, base_channel * 4, num_point, self.adjc_mat)
+        self.l1 = sts_attention(in_channels, base_channel, num_point, edges, residual=False)
+        self.l2 = sts_attention(base_channel, base_channel, num_point, edges)
+        self.l3 = sts_attention(base_channel, base_channel * 2, num_point, edges, stride=2)
+        self.l4 = sts_attention(base_channel * 2, base_channel * 2, num_point, edges)
+        self.l5 = sts_attention(base_channel * 2, base_channel * 4, num_point, edges, stride=2)
+        self.l6 = sts_attention(base_channel * 4, base_channel * 4, num_point, edges)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))

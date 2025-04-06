@@ -24,7 +24,7 @@ if __name__ == '__main__':
         config = dict(json.load(file))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    weight = torch.load('../model_weight/ntu60_cs/model70.pth')
+    weight = torch.load('../model_weight/ntu60_cv/model70.pth')
     # model = MyModel.Model().to(device).eval()
     model = Model.Model(config['num_class'], config['num_point'],
                         config['num_person'], config['edges'],
