@@ -47,7 +47,8 @@ if __name__ == '__main__':
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
-    model = Model.Model(config['num_class'], config['num_point'], config['num_person'], config['edges'], config['dims'])
+    model = Model.Model(config['num_class'], config['num_point'],
+                        config['num_person'], config['edges'], config['dims'])
     # model = MyModel.Model()
     # model = temp.Model()
     # model = MyModel1.Model()
@@ -60,7 +61,7 @@ if __name__ == '__main__':
     loss_fn = nn.CrossEntropyLoss()
     loss_fn = loss_fn.to(device)
 
-    base_learning_rate = 0.01
+    base_learning_rate = 0.1
     current_learning_rate = base_learning_rate
     lr_decay_rate = 0.1
     weight_decay = 0.0004

@@ -150,19 +150,17 @@ class dot_product_attention(nn.Module):
         return x
 
 class st_attention_block(nn.Module):
-    def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
+    def __init__(self, in_channels, out_channels, rel_reduction=8):
         super(st_attention_block, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
         if in_channels < 16:
-            self.rel_channels = 8
+            rel_channels = 8
         else:
-            self.rel_channels = in_channels // rel_reduction
-        self.W_K = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.W_Q = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.W_V = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
+            rel_channels = in_channels // rel_reduction
+        self.W_K = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
+        self.W_Q = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
+        self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.dot_production_attention = dot_product_attention()
-        self.ffn = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
+        self.ffn = nn.Conv2d(rel_channels, out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor([0], dtype=torch.float32))
 
         for m in self.modules():
@@ -204,9 +202,9 @@ class res_module(nn.Module):
 
 
 class st_attention(nn.Module):
-    def __init__(self, in_channels, out_channels, adjc_mat, residual=True):
+    def __init__(self, in_channels, out_channels, adjc_mat, head_num=3, residual=True):
         super(st_attention, self).__init__()
-        self.head_num = 3
+        self.head_num = head_num
         self.attention = nn.ModuleList()
         self.adjc_mat = nn.Parameter(adjc_mat.clone().detach().requires_grad_(True))
         for i in range(self.head_num):
@@ -222,6 +220,7 @@ class st_attention(nn.Module):
                 self.res = return_x()
         else:
             self.res = return_0()
+
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU(inplace=True)
@@ -246,8 +245,8 @@ class st_attention(nn.Module):
 class sts_attention(nn.Module):
     def __init__(self, in_channels, out_channels, num_point, adjc_mat, stride=1, residual=True):
         super(sts_attention, self).__init__()
-        self.gcn1 = st_attention(in_channels, out_channels, adjc_mat)
-        self.tcn1 = sts_feature_extraction(out_channels, out_channels, num_point, stride=stride)
+        self.st_attn = st_attention(in_channels, out_channels, adjc_mat)
+        self.sts_fe = sts_feature_extraction(out_channels, out_channels, num_point, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
             self.residual = return_0()
@@ -257,8 +256,8 @@ class sts_attention(nn.Module):
             self.residual = res_module(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
 
     def forward(self, x):
-        x1 = self.gcn1(x)
-        x2 = self.tcn1(x1)
+        x1 = self.st_attn(x)
+        x2 = self.sts_fe(x1)
         res = self.residual(x)
         y = self.relu(x2 + res)
         return y
@@ -269,12 +268,9 @@ class Model(nn.Module):
                  drop_out=0):
         super(Model, self).__init__()
 
-
-        self.num_class = num_class
         self.num_point = num_point
-        self.edges = edges
         self.adjc_mat = torch.zeros(num_point, num_point)
-        for i in self.edges:
+        for i in edges:
             self.adjc_mat[i[0] - 1][i[1] - 1] = 1
         self.adjc_mat = torch.stack((torch.eye(num_point), self.adjc_mat, self.adjc_mat.T), dim=0)
 

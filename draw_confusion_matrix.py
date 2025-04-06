@@ -10,7 +10,7 @@ from thop import profile
 from torchprofile import profile_macs
 from tqdm import tqdm
 
-from Model import MyModel
+from Model import Model
 from Model import ctrgcn
 from plot_confusion_matrix import plot_confusion_matrix
 from utils.MyDataLoader import MyDataLoader
@@ -24,9 +24,11 @@ if __name__ == '__main__':
         config = dict(json.load(file))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    weight = torch.load('../ctr-model70.pth')
+    weight = torch.load('../model_weight/ntu60_cs/model70.pth')
     # model = MyModel.Model().to(device).eval()
-    model = Model.Model().to(device).eval()
+    model = Model.Model(config['num_class'], config['num_point'],
+                        config['num_person'], config['edges'],
+                        config['dims']).to(device).eval()
     model.load_state_dict(weight)
     train_data_loader, test_data_loader = MyDataLoader(config, device)
 
