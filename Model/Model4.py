@@ -54,15 +54,19 @@ class return_0(nn.Module):
 
 
 class dot_product_attention(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels, out_channels):
         super(dot_product_attention, self).__init__()
-        self.tanh = nn.Tanh()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
         self.beta = nn.Parameter(torch.tensor([0.5], dtype=torch.float32))
+        self.tanh = nn.Tanh()
 
     def forward(self, k, q):
         x1 = k.unsqueeze(-1) @ q.unsqueeze(-2)
         x2 = k.unsqueeze(-1) - q.unsqueeze(-2)
+        x1 = self.conv1(x1)
+        x2 = self.conv2(x2)
         x = x1 * self.alpha + x2 * self.beta
         x = self.tanh(x)
         return x
@@ -78,7 +82,7 @@ class st_attention_block(nn.Module):
         self.W_K = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
         self.W_Q = nn.Conv2d(in_channels, rel_channels, kernel_size=1)
         self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.dot_production_attention = dot_product_attention()
+        self.dot_production_attention = dot_product_attention(rel_channels, rel_channels)
         self.ffn = nn.Conv2d(rel_channels, out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor([1], dtype=torch.float32))
 

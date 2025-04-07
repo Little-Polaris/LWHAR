@@ -13,7 +13,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp
+from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
-    model = Model.Model(config['num_class'], config['num_point'],
+    model = Model4.Model(config['num_class'], config['num_point'],
                         config['num_person'], config['edges'], config['dims'])
     # model = ctrgcn.Model()
     # model = MyModel.Model()
