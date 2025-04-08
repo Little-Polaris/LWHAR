@@ -2,18 +2,18 @@ import argparse
 import json
 import os
 import random
-import warnings
 from collections import OrderedDict
 from datetime import datetime
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn, autocast
 from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4
+from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4, BlockGCN
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -47,6 +47,7 @@ if __name__ == '__main__':
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
+    # model = BlockGCN.Model()
     model = Model4.Model(config['num_class'], config['num_point'],
                         config['num_person'], config['edges'], config['dims'])
     # model = ctrgcn.Model()
@@ -70,12 +71,11 @@ if __name__ == '__main__':
     optimizer = torch.optim.SGD(model.parameters(), lr=base_learning_rate, momentum=0.9, nesterov=True, weight_decay=weight_decay)
 
     last_lr_change_epoch = 0
-    def adjust_learning_rate(epoch: int):
-        learning_rate = 0.1
+    def adjust_learning_rate(epoch: int, base_lr: float):
         if epoch < warm_up_epoch:
-            lr = learning_rate * (epoch + 1) / warm_up_epoch
+            lr = base_lr * (epoch + 1) / warm_up_epoch
         else:
-            lr = learning_rate * (
+            lr = base_lr * (
                     lr_decay_rate ** np.sum(epoch >= np.array([35, 55])))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
@@ -83,12 +83,11 @@ if __name__ == '__main__':
 
     total_train_step = 0
     total_test_step = 0
-    # 训练10000次
+
     epoch = config['epoch']
     warm_up_epoch = 0
     if config.get('warm_up'):
         warm_up_epoch = config['warm_up']
-        # print(f'Warm up for {warm_up_epoch} epoch')
         logger.info(f'Warm up for {warm_up_epoch} epoch')
 
     acc = []
@@ -98,12 +97,10 @@ if __name__ == '__main__':
 
     for i in range(epoch + warm_up_epoch):
         if i > 4:
-            current_learning_rate = adjust_learning_rate(i)
+            current_learning_rate = adjust_learning_rate(i, base_learning_rate)
         # 训练模型
         model.train()
-        temp = 0
         for data in tqdm(train_data_loader):
-            temp+=1
             inputs, labels, _= data
             inputs = inputs.float().to(device)
             labels = labels.long().to(device)
