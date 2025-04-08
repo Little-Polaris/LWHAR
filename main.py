@@ -48,9 +48,9 @@ if __name__ == '__main__':
 
     # 创建模型
     # model = BlockGCN.Model()
-    model = Model4.Model(config['num_class'], config['num_point'],
-                        config['num_person'], config['edges'], config['dims'])
-    # model = ctrgcn.Model()
+    # model = Model4.Model(config['num_class'], config['num_point'],
+    #                     config['num_person'], config['edges'], config['dims'])
+    model = ctrgcn.Model()
     # model = MyModel.Model()
     # model = temp.Model()
     # model = MyModel1.Model()
