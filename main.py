@@ -13,7 +13,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4, BlockGCN
+from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4, BlockGCN, Model5
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -50,7 +50,8 @@ if __name__ == '__main__':
     # model = BlockGCN.Model()
     # model = Model4.Model(config['num_class'], config['num_point'],
     #                     config['num_person'], config['edges'], config['dims'])
-    model = ctrgcn.Model()
+    # model = ctrgcn.Model()
+    model = Model5.Model()
     # model = MyModel.Model()
     # model = temp.Model()
     # model = MyModel1.Model()
