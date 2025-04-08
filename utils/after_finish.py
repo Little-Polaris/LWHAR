@@ -70,8 +70,8 @@ def after_finish(shutdown_immediately: bool = False):
     latest_log = open(f'./logs/{sorted(log_times)[-1]}/log.txt', 'r')
     message = ''.join(latest_log.readlines())
     send_email(sender_email, sender_password, receiver_email, subject, message)
-    time.sleep(60)
-    if not shutdown_immediately:
-        time.sleep(300)
-    # 关机
-    shutdown_system()
+    # time.sleep(60)
+    # if not shutdown_immediately:
+    #     time.sleep(300)
+    # # 关机
+    # shutdown_system()
