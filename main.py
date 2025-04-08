@@ -25,7 +25,7 @@ if __name__ == '__main__':
     with open(args['config_path'], 'r') as file:
         config = dict(json.load(file))
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(config['device'])
 
     seed = 1
 
@@ -92,7 +92,7 @@ if __name__ == '__main__':
 
     acc = []
 
-    scaler = GradScaler('cuda')
+    scaler = GradScaler(config['device'])
     # torch.autograd.set_detect_anomaly(True)
 
     for i in range(epoch + warm_up_epoch):

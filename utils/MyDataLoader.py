@@ -159,6 +159,7 @@ def MyDataLoader(config, device):
                 batch_size=config['batch_size'],
                 shuffle=True,
                 num_workers=config['dataloader_num_workers'],
+                prefetch_factor=config['dataloader_num_workers'] if config['dataloader_num_workers'] > 0 else None,
                 drop_last=True,
                 worker_init_fn=init_seed)
 
@@ -171,6 +172,7 @@ def MyDataLoader(config, device):
             batch_size=config['batch_size'],
             shuffle=False,
             num_workers=config['dataloader_num_workers'],
+            prefetch_factor=config['dataloader_num_workers'] if config['dataloader_num_workers'] > 0 else None,
             drop_last=False,
             worker_init_fn=init_seed)
     return train_data_loader, test_data_loader

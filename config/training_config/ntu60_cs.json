@@ -2,6 +2,7 @@
     "dataset_name": "ntu60",
     "binary_data_dir": "../datasets/nturgb+d_skeletons/preprocessed",
     "evaluation_mode": "cs",
+    "device": "cuda:0",
     "num_person": 2,
     "num_point": 25,
     "dims": 3,

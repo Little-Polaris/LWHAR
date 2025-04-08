@@ -2,6 +2,7 @@
     "dataset_name": "UAV",
     "binary_data_dir": "../datasets/U-man/preprocessed",
     "evaluation_mode": "pro2",
+    "device": "cuda:0",
     "num_person": 2,
     "num_point": 17,
     "dims": 2,
