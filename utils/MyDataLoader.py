@@ -16,12 +16,16 @@ def init_seed(seed):
     random.seed(seed)
 
 class Feeder(Dataset):
-    def  __init__(self, data_path, p_interval, split, evaluation_mode, window_size):
+    def  __init__(self, data_path, p_interval, split, evaluation_mode, window_size, edges,
+                  bone=0, vel=0):
         self.data_path = data_path
         self.p_interval = p_interval
         self.split = split
         self.evaluation_mode = evaluation_mode
         self.window_size = window_size
+        self.edges = edges
+        self.bone = bone
+        self.vel = vel
         self.load_data()
 
     def load_data(self):
@@ -54,6 +58,15 @@ class Feeder(Dataset):
         label = self.label[index]
         data = self.valid_crop_resize(data, data.shape[1], self.p_interval, self.window_size)
         data = self.rot(data)
+        if self.bone:
+            bone_data = torch.zeros_like(data)
+            for v1, v2 in self.edges:
+                bone_data[:, :, v1 - 1] = data[:, :, v1 - 1] - data[:, :, v2 - 1]
+
+            data = bone_data
+        if self.vel:
+            data = data[:, 1:] - data[:, :-1]
+            data[:, -1] = 0
         return data, label, index
 
     def interpolate_isolated_zeros_in_columns(self, data: np.ndarray[np.float32], window_size: int) -> np.ndarray[np.float32]:
@@ -155,7 +168,10 @@ def MyDataLoader(config, device):
                                p_interval=config['train_p_interval'],
                                split='train',
                                evaluation_mode=config['evaluation_mode'],
-                               window_size=64),
+                               window_size=64,
+                               edges=config['edges'],
+                               bone=config['bone'],
+                               vel=config['vel']),
                 batch_size=config['batch_size'],
                 shuffle=True,
                 num_workers=config['dataloader_num_workers'],
@@ -168,7 +184,10 @@ def MyDataLoader(config, device):
                            p_interval=config['test_p_interval'],
                            split='test',
                            evaluation_mode=config['evaluation_mode'],
-                           window_size=64),
+                           window_size=64,
+                           edges=config['edges'],
+                           bone=config['bone'],
+                           vel=config['vel']),
             batch_size=config['batch_size'],
             shuffle=False,
             num_workers=config['dataloader_num_workers'],

@@ -5,3 +5,4 @@
 *.npz
 logs/
 temp_test/
+*.zip

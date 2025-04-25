@@ -1,10 +1,14 @@
 import math
+import os
 import pdb
+import shutil
 
 import numpy as np
 import torch
 from torch import nn
 from torch.autograd import Variable
+
+
 
 def import_class(name):
     components = name.split('.')
@@ -146,19 +150,62 @@ class MultiScale_TemporalConv(nn.Module):
         out += res
         return out
 
-class Permutation(nn.Module):
-    def __init__(self, dim):
+
+class LearnablePermutation(nn.Module):
+    def __init__(self, dim_size, sinkhorn_iters=20):
         super().__init__()
-        self.permutation_matrix = nn.Parameter(torch.arange(dim, dtype=torch.float32))
+        self.dim_size = dim_size
+        self.sinkhorn_iters = sinkhorn_iters
+
+        # 可学习参数矩阵（方阵）
+        self.log_alpha = nn.Parameter(torch.randn(dim_size, dim_size))
+
+    def sinkhorn(self, log_alpha):
+        """Sinkhorn算法生成双随机矩阵"""
+        for _ in range(self.sinkhorn_iters):
+            log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=1, keepdim=True)  # 行归一化
+            log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=0, keepdim=True)  # 列归一化
+        return log_alpha.exp()  # 转换为概率矩阵
 
     def forward(self, x, A):
-        new_index = torch.argsort(self.permutation_matrix)
-        x_permuted = torch.zeros_like(x)
-        A_permuted = torch.zeros_like(A)
-        for i in range(len(new_index)):
-            x_permuted[:, :, :, i] = x[:, :, :, new_index[i]]
-            A_permuted[:, :, :, i] = A[:, :, :, new_index[i]]
-        return x_permuted, A_permuted
+        """
+        Args:
+            x: 输入张量，形状为 (B, C, H, W)，需对第四维(W)排列
+        Returns:
+            重排列后的张量，形状不变
+        """
+        # 生成双随机矩阵
+        P = self.sinkhorn(self.log_alpha)
+
+        # 获取排列索引（训练时使用soft排列，推理时使用hard排列）
+        if self.training:
+            # 训练时：使用可微的soft排列（矩阵乘法）
+            x_permuted = torch.einsum('bchw,wp->bchp', x, P)
+            A_permuted = torch.einsum('bchw,wp->bchp', A, P)
+        else:
+            # 推理时：使用精确的hard排列（argmax）
+            perm = torch.argmax(P, dim=1)
+            x_permuted = torch.index_select(x, dim=-1, index=perm)
+            A_permuted = torch.index_select(A, dim=-1, index=perm)
+
+        return x_permuted, A
+
+# class Permutation(nn.Module):
+#     def __init__(self, dim):
+#         super().__init__()
+#         self.permutation_matrix = nn.Parameter(torch.arange(dim, dtype=torch.float32) / 100)
+#
+#     def forward(self, x, A):
+#         new_index = torch.argsort(self.permutation_matrix)
+#         x_permuted = torch.gather(x, dim=3, index=new_index.expand(*x.shape[:3], -1))
+#         A_permuted = torch.gather(A, dim=3, index=new_index.expand(*A.shape[:3], -1))
+#         x_permuted += self.permutation_matrix
+#         # x_permuted = torch.zeros_like(x)
+#         # A_permuted = torch.zeros_like(A)
+#         # for i in range(len(new_index)):
+#         #     x_permuted[:, :, :, i] = x[:, :, :, new_index[i]]
+#         #     A_permuted[:, :, :, i] = A[:, :, :, new_index[i]]
+#         return x_permuted, A_permuted
 
 class CTRGC(nn.Module):
     def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
@@ -171,12 +218,17 @@ class CTRGC(nn.Module):
         else:
             self.rel_channels = in_channels // rel_reduction
             self.mid_channels = in_channels // mid_reduction
-        self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
-        self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1)
+        self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels//2, kernel_size=1)
+        self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels//2, kernel_size=1)
         self.conv3 = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
-        self.permutation = Permutation(25)
+        # self.permutation = LearnablePermutation(25)
+        # self.permutation = Permutation(25)
         self.conv4 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1)
+        # self.conv5 = nn.Conv2d(self.rel_channels//2, self.rel_channels//2, kernel_size=1)
+        # self.conv6 = nn.Conv2d(self.rel_channels//2, self.rel_channels//2, kernel_size=1)
         self.tanh = nn.Tanh()
+        # self.alpha = nn.Parameter(torch.Tensor([0.5]))
+        # self.beta = nn.Parameter(torch.Tensor([0.5]))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 conv_init(m)
@@ -185,9 +237,14 @@ class CTRGC(nn.Module):
 
     def forward(self, x, A=None, alpha=1):
         x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
-        x1 = self.tanh(x1.unsqueeze(-1) - x2.unsqueeze(-2))
-        x1, A = self.permutation(x1, A.unsqueeze(0).unsqueeze(0))
-        x1 = self.conv4(x1) * alpha + A
+        x4 = x1.unsqueeze(-1) - x2.unsqueeze(-2)
+        x5 = x1.unsqueeze(-1) @ x2.unsqueeze(-2)
+        # x4 = self.conv5(x4)
+        # x5 = self.conv6(x5)
+        x1 = self.tanh(torch.cat((x4, x5), dim=1))
+        # x1 = self.tanh(x4)
+        # x1, A = self.permutation(x1, A.unsqueeze(0).unsqueeze(0))
+        x1 = self.conv4(x1) * alpha + A.unsqueeze(0).unsqueeze(0)
         x1 = torch.einsum('ncuv,nctv->nctu', x1, x3)
         return x1
 
@@ -289,7 +346,8 @@ class Model(nn.Module):
     def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3,
                  drop_out=0, adaptive=True):
         super(Model, self).__init__()
-
+        source_path = os.path.abspath(__file__)
+        shutil.copy2(source_path, "./logs/model.py")
         # if graph is None:
         #     raise ValueError()
         # else:

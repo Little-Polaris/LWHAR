@@ -67,8 +67,8 @@ def after_finish(shutdown_immediately: bool = False):
         # 发送邮件
     subject = "Python 脚本运行结束通知"
     log_times = os.listdir('./logs')
-    latest_log = open(f'./logs/{sorted(log_times)[-1]}/log.txt', 'r')
-    message = ''.join(latest_log.readlines())
+    latest_log = open(f'./logs/{sorted(log_times)[-2]}/log.txt', 'r')
+    message = ''.join(latest_log.readlines()[-80:])
     send_email(sender_email, sender_password, receiver_email, subject, message)
     # time.sleep(60)
     # if not shutdown_immediately:

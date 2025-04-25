@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import random
+import shutil
 from collections import OrderedDict
 from datetime import datetime
 
@@ -9,11 +10,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn, autocast
-from torch.amp import GradScaler
+from torch.cuda.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import ctrgcn, Model, MyModel, MyModel1, NewModel, temp, Model4, BlockGCN, Model5
+from Model import Model13, Model7, Model9, ctrgcn, Model10, Model11, Model12
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -44,18 +45,24 @@ if __name__ == '__main__':
     start_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     writer = SummaryWriter(f'logs/{start_time}')
     logger = miniLogger(start_time)
+    shutil.copy2(args['config_path'], f'logs/{start_time}/config.json')
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
     # model = BlockGCN.Model()
     # model = Model4.Model(config['num_class'], config['num_point'],
     #                     config['num_person'], config['edges'], config['dims'])
-    # model = ctrgcn.Model()
-    model = Model5.Model()
+    # model = ctrgcn.Model(num_class=config['num_class'])
+    model = Model13.Model(config['num_class'], config['num_point'],
+                    config['num_person'], config['dims'])
+    # model = Model12.Model(num_class=config['num_class'])
     # model = MyModel.Model()
     # model = temp.Model()
     # model = MyModel1.Model()
     # model = NewModel.Model(config['num_class'], config['num_point'], config['dims'])
+    # model = nn.DataParallel(model)
+    shutil.move('./logs/model.py', f"./logs/{sorted(os.listdir('./logs'))[-2]}/model.py")
+    
     model = model.to(device)
     logger.info(model)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -93,7 +100,7 @@ if __name__ == '__main__':
 
     acc = []
 
-    scaler = GradScaler(config['device'])
+    scaler = GradScaler()
     # torch.autograd.set_detect_anomaly(True)
 
     for i in range(epoch + warm_up_epoch):
@@ -134,7 +141,7 @@ if __name__ == '__main__':
 
         logger.info(f'Epoch {i + 1}, Loss: {cur_epoch_test_loss}, Acc: {cur_acc / count}, Learning Rate: {current_learning_rate}')
         acc.append(cur_acc / count)
-        if (i + 1) % 5 == 0:
+        if (i + 1) % 5 == 0 or i > 55:
             state_dict = model.state_dict()
             weights = OrderedDict([[k.split('module.')[-1], v.cpu()] for k, v in state_dict.items()])
 

@@ -1,5 +1,7 @@
 import math
+import os
 import pdb
+import shutil
 
 import numpy as np
 import torch
@@ -274,7 +276,8 @@ class Model(nn.Module):
     def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3,
                  drop_out=0, adaptive=True):
         super(Model, self).__init__()
-
+        source_path = os.path.abspath(__file__)
+        shutil.copy2(source_path, "./logs/model.py")
         # if graph is None:
         #     raise ValueError()
         # else:
