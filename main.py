@@ -14,7 +14,7 @@ from torch.cuda.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model13, Model7, Model9, ctrgcn, Model10, Model11, Model12
+from Model import Model13, Model7, Model9, ctrgcn, Model10, Model11, Model12, Model19
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     # model = Model4.Model(config['num_class'], config['num_point'],
     #                     config['num_person'], config['edges'], config['dims'])
     # model = ctrgcn.Model(num_class=config['num_class'])
-    model = Model13.Model(config['num_class'], config['num_point'],
+    model = Model19.Model(config['num_class'], config['num_point'],
                     config['num_person'], config['dims'])
     # model = Model12.Model(num_class=config['num_class'])
     # model = MyModel.Model()

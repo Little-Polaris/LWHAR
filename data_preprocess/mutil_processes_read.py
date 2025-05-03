@@ -22,9 +22,12 @@ def split_list(filenames, threads):
 
     return result
 
-def mutil_processes_read(config: dict) -> list[dict[str:int, str:int, str:int, str:int, str:np.ndarray[Any, np.float32]]]:
+def mutil_processes_read(config: dict):
     dataset_dir = config['raw_dataset_dir']
     filenames = os.listdir(dataset_dir)
+    if config['dataset_name'] == 'ntu120':
+        ntu60_raw_dataset_dir = config['ntu60_raw_dataset_dir']
+        filenames.extend(os.listdir(ntu60_raw_dataset_dir))
     process_num = config['process_num']
 
     data = []

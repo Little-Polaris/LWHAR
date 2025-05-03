@@ -9,6 +9,7 @@ from data_preprocess.DataReader import DataReader
 class NTU120DataReader(DataReader):
     def __init__(self, config: dict):
         super(NTU120DataReader, self).__init__(config)
+        self.ntu60_raw_dataset_dir = config['ntu60_raw_dataset_dir']
         self.camera_start = config['camera_start']
         self.camera_end = config['camera_end']
         self.center_joint = config['center_joint']
@@ -121,8 +122,12 @@ class NTU120DataReader(DataReader):
             camera = int(filename[self.camera_start:self.camera_end])
             main_performer = int(filename[self.performer_start:self.performer_end])
             label = int(filename[self.label_start: self.label_end])
-            with open(os.path.join(self.raw_dataset_dir, filename), 'r') as file:
-                data = file.readlines()
+            if int(filename[1:4]) < 18:
+                with open(os.path.join(self.ntu60_raw_dataset_dir, filename), 'r') as file:
+                    data = file.readlines()
+            else:
+                with open(os.path.join(self.raw_dataset_dir, filename), 'r') as file:
+                    data = file.readlines()
             data = self.read_file(data, self.dims)
             if not data:
                 print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  {filename} is skipped for length.')

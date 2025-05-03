@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from Model import Model, Model12, Model13, Model5
 from Model import ctrgcn
+from Model import Model24
 from plot_confusion_matrix import plot_confusion_matrix
 from utils.MyDataLoader import MyDataLoader
 from utils.miniLogger import miniLogger
@@ -38,7 +39,7 @@ if __name__ == '__main__':
                       {'bone':1, 'vel':0},
                       {'bone':1, 'vel':1}]
     
-    model = Model13.Model(config['num_class'], config['num_point'],
+    model = Model24.Model(config['num_class'], config['num_point'],
                         config['num_person'], config['dims']).to(device).eval()
 
     start_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -71,7 +72,7 @@ if __name__ == '__main__':
         for data, _, _ in tqdm(test_data_loader):
             data = data.float().to(device)
             outputs[i].extend(model(data).detach().cpu().numpy().tolist())
-    ratio = [0.6, 0.6, 0.4, 0.4]
+    ratio = [0.6, 0.4, 0.6, 0.4]
     outputs = [torch.tensor(outputs[i]) for i in range(4)]
     result = outputs[0] * ratio[0] + outputs[1] * ratio[1] + outputs[2] * ratio[2] + outputs[3] * ratio[3]
     result = torch.argmax(result, dim=1).numpy()

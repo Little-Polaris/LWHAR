@@ -13,10 +13,10 @@
                     [20, 19], [22, 23], [23, 8], [24, 25], [25, 12]],
     "train_p_interval": [0.5, 1],
     "test_p_interval": [0.95],
-    "joint_weight_path": "../max_mini/2025-04-29-23-46-53/model_weight/model62.pth",
-    "joint_motion_weight_path": "../max_mini/2025-04-30-03-14-29/model_weight/model62.pth",
-    "bone_weight_path": "../max_mini/2025-04-30-06-41-29/model_weight/model64.pth",
-    "bone_motion_weight_path": "../max_mini/2025-04-30-10-09-01/model_weight/model63.pth",
+    "joint_weight_path": "../max_mini/2025-04-29-23-46-53/model_weight/model57.pth",
+    "joint_motion_weight_path": "../max_mini/2025-04-30-03-14-29/model_weight/model57.pth",
+    "bone_weight_path": "../max_mini/2025-04-30-06-41-29/model_weight/model57.pth",
+    "bone_motion_weight_path": "../max_mini/2025-04-30-10-09-01/model_weight/model57.pth",
     "batch_size": 64,
     "dataloader_num_workers": 0
 }

@@ -2,6 +2,7 @@
     "dataset_name": "ntu120",
     "raw_dataset_dir": "../datasets/nturgb+d_skeletons120/raw_data",
     "to_be_removed_files": "../datasets/nturgb+d_skeletons120/statistics/NTU_RGBD120_samples_with_missing_skeletons.txt",
+    "ntu60_raw_dataset_dir": "../datasets/nturgb+d_skeletons/raw_data",
     "binary_data_dir": "../datasets/nturgb+d_skeletons120/preprocessed",
     "file_suffix": ".skeleton",
     "num_point": 25,
@@ -22,6 +23,6 @@
                      31, 34, 35, 38, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57,
                      58, 59, 70, 74, 78, 80, 81, 82, 83, 84, 85, 86, 89, 91, 92,
                      93, 94, 95, 97, 98, 100, 103],
-    "train_camera_id": [2, 3],
-    "test_camera_id": [1]
+    "train_set_id": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32],
+    "test_set_id": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
 }
