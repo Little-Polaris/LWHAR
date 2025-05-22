@@ -10,7 +10,6 @@ from torch import nn
 from torch.autograd import Variable
 
 
-
 def import_class(name):
     components = name.split('.')
     mod = __import__(components[0])
@@ -83,54 +82,36 @@ class res_module(nn.Module):
         x = self.bn(self.conv(x))
         return x
 
-class pos_encoding(nn.Module):
-    def __init__(self, channels, num_point):
-        super(pos_encoding, self).__init__()
+# class Permutation(nn.Module):
+#     def __init__(self, dim_size, tau=1.0, sinkhorn_iters=5, identity_strength=5.0):
+#         super(Permutation, self).__init__()
+#         self.dim_size = dim_size
+#         self.tau = tau
+#         self.sinkhorn_iters = sinkhorn_iters
+#         self.identity_strength = identity_strength
+#         self.log_alpha = nn.Parameter(torch.zeros(dim_size, dim_size))
+#         self._init_identity_alpha()
 
-        pe = torch.zeros(num_point, channels)
-        position = torch.arange(0, num_point, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, channels, 2).float() * (-math.log(10000.0) / channels))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).unsqueeze(0).permute(0, 3, 1, 2)
-        self.register_buffer('pe', pe)
+#     def _init_identity_alpha(self):
+#         with torch.no_grad():
+#             eye = torch.eye(self.dim_size, device=self.log_alpha.device)
+#             self.log_alpha.copy_(eye * self.identity_strength + torch.randn_like(self.log_alpha) * 0.01)
 
-    def forward(self, x):
-        x = x + self.pe
-        return x
+#     def sinkhorn(self, log_alpha):
+#         for _ in range(self.sinkhorn_iters):
+#             log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=1, keepdim=True)
+#             log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=0, keepdim=True)
+#         return log_alpha.exp()
 
-class Permutation(nn.Module):
-    def __init__(self, dim_size, tau=1.0, sinkhorn_iters=5, identity_strength=5.0):
-        super(Permutation, self).__init__()
-        self.dim_size = dim_size
-        self.tau = tau
-        self.sinkhorn_iters = sinkhorn_iters
-        self.identity_strength = identity_strength
-
-        self.log_alpha = nn.Parameter(torch.zeros(dim_size, dim_size))
-        self._init_identity_alpha()
-
-    def _init_identity_alpha(self):
-        with torch.no_grad():
-            eye = torch.eye(self.dim_size, device=self.log_alpha.device)
-            self.log_alpha.copy_(eye * self.identity_strength + torch.randn_like(self.log_alpha) * 0.01)
-
-    def sinkhorn(self, log_alpha):
-        for _ in range(self.sinkhorn_iters):
-            log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=1, keepdim=True)
-            log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=0, keepdim=True)
-        return log_alpha.exp()
-
-    def forward(self, x):
-        if self.training:
-            gumbel = -torch.log(-torch.log(torch.rand_like(self.log_alpha) + 1e-20))
-            noisy_alpha = (self.log_alpha + gumbel) / self.tau
-            P = self.sinkhorn(noisy_alpha)
-        else:
-            P = self.sinkhorn(self.log_alpha)
-            P = torch.eye(self.dim_size, device=x.device)[P.argmax(dim=-1)]
-
-        return torch.einsum('bchw,wp->bchp', x, P)
+#     def forward(self, x):
+#         if self.training:
+#             gumbel = -torch.log(-torch.log(torch.rand_like(self.log_alpha) + 1e-20))
+#             noisy_alpha = (self.log_alpha + gumbel) / self.tau
+#             P = self.sinkhorn(noisy_alpha)
+#         else:
+#             P = self.sinkhorn(self.log_alpha)
+#             P = torch.eye(self.dim_size, device=x.device)[P.argmax(dim=-1)]
+#         return torch.einsum('bchw,wp->bchp', x, P)
 
 class attention(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -158,7 +139,7 @@ class st_attention_block(nn.Module):
         self.W_Q = nn.Conv2d(in_channels, rel_channels//2, kernel_size=1)
         self.W_V = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.attention = attention(rel_channels//2, rel_channels//2)
-        self.permutation = Permutation(25)
+        # self.permutation = Permutation(25)
         self.ffn = nn.Conv2d(rel_channels, out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.zeros(1))
         for m in self.modules():
@@ -174,7 +155,7 @@ class st_attention_block(nn.Module):
 
         x = self.attention(k, q)
 
-        x= self.permutation(x)
+        # x = self.permutation(x)
 
         x = self.ffn(x)
 
@@ -244,7 +225,8 @@ class st_feature_extraction_block(nn.Module):
         kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, 1)
         stride = stride if isinstance(stride, tuple) else (stride, 1)
         dilation = dilation if isinstance(dilation, tuple) else (dilation, 1)
-        pad = (kernel_size[0] + (kernel_size[0] - 1) * (dilation[0] - 1) - 1) // 2
+        pad0 = (kernel_size[0] + (kernel_size[0] - 1) * (dilation[0] - 1) - 1) // 2
+        pad1 = (kernel_size[1] + (kernel_size[1] - 1) * (dilation[1] - 1) - 1) // 2
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1 if not mini else stride)
         self.bn1 = nn.BatchNorm2d(out_channels)
         if mini:
@@ -258,13 +240,13 @@ class st_feature_extraction_block(nn.Module):
                 self.pooling = nn.MaxPool2d(kernel_size=(3, 1), stride=stride, padding=(1, 0))
                 self.stride = 1
             elif pooling == 'avg':
-                self.pooling = nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)
+                self.pooling = nn.AvgPool2d(kernel_size=(3, 1), stride=stride, padding=(1, 0))
                 self.stride = 1
             else:
                 self.pooling = return_x()
             if ffn:
-                self.ffn = nn.Conv2d(out_channels, out_channels, kernel_size=(5, 3), stride=stride,
-                                     padding=(pad, pad//2), dilation=dilation)
+                self.ffn = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=stride,
+                                     padding=(pad0, pad1), dilation=dilation)
             else:
                 self.ffn = return_x()
             self.bn2 = nn.BatchNorm2d(out_channels)
@@ -282,15 +264,13 @@ class st_feature_extraction_block(nn.Module):
 class sts_feature_extraction(nn.Module):
     def __init__(self, num_point, in_channels, out_channels, stride=1, ):
         super(sts_feature_extraction, self).__init__()
-        self.pe = pos_encoding(in_channels, num_point)
         self.block1 = st_feature_extraction_block(in_channels, out_channels // 4, (5, 1), stride, 1, ffn=True)
-        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, (5, 1), stride, (2, 2), ffn=True)
+        self.block2 = st_feature_extraction_block(in_channels, out_channels // 4, (5, 1), stride, (2, 1), ffn=True)
         self.block3 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 1, 'max')
         self.block4 = st_feature_extraction_block(in_channels, out_channels // 4, 1, stride, 1, mini=True)
         self.apply(weights_init)
 
     def forward(self, x):
-        x = self.pe(x)
         out1 = self.block1(x)
         out2 = self.block2(x)
         out3 = self.block3(x)
@@ -301,8 +281,8 @@ class sts_feature_extraction(nn.Module):
 class sts_attention(nn.Module):
     def __init__(self, num_point, in_channels, out_channels, stride=1, residual=True):
         super(sts_attention, self).__init__()
-        self.gcn1 = st_attention(in_channels, out_channels)
-        self.tcn1 = sts_feature_extraction(num_point, out_channels, out_channels, stride=stride)
+        self.st_attention = st_attention(in_channels, out_channels)
+        self.sts_fe = sts_feature_extraction(num_point, out_channels, out_channels, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
             self.residual = return_0()
@@ -314,13 +294,13 @@ class sts_attention(nn.Module):
             self.residual = res_module(in_channels, out_channels, kernel_size=1, stride=stride)
 
     def forward(self, x):
-        y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
+        y = self.relu(self.sts_fe(self.st_attention(x)) + self.residual(x))
         return y
 
 
 class Model(nn.Module):
-    def __init__(self, num_class=60, num_point=25, num_person=2,in_channels=3,
-                 drop_out=0, adaptive=True):
+    def __init__(self, num_class, num_point, num_person,in_channels,
+                 drop_out=0):
         super(Model, self).__init__()
         source_path = os.path.abspath(__file__)
         shutil.copy2(source_path, "./logs/model.py")
@@ -347,6 +327,8 @@ class Model(nn.Module):
         if len(x.shape) == 3:
             N, T, VC = x.shape
             x = x.view(N, T, self.num_point, -1).permute(0, 3, 1, 2).contiguous().unsqueeze(-1)
+        if len(x.shape) == 4:
+            x = x.unsqueeze(0)
         N, C, T, V, M = x.size()
 
         x = x.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V * C, T)

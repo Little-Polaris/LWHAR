@@ -19,5 +19,5 @@
     "batch_size": 64,
     "epoch": 65,
     "warm_up": 5,
-    "dataloader_num_workers": 4
+    "dataloader_num_workers": 0
 }

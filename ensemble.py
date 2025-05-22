@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import pickle
 import shutil
 from datetime import datetime
 
@@ -60,6 +61,11 @@ if __name__ == '__main__':
         label_names = label_names[:60]
 
     outputs = [[], [], [], []]
+    config['bone'] = 0
+    config['vel'] = 0
+    _, test_data_loader = MyDataLoader(config, device)
+    true_lables = numpy.array(test_data_loader.dataset.label, dtype=int)
+
     for i in range(4):
         model.load_state_dict(weights[i], strict=False)
         model.eval()
@@ -76,11 +82,17 @@ if __name__ == '__main__':
     outputs = [torch.tensor(outputs[i]) for i in range(4)]
     result = outputs[0] * ratio[0] + outputs[1] * ratio[1] + outputs[2] * ratio[2] + outputs[3] * ratio[3]
     result = torch.argmax(result, dim=1).numpy()
+    # with open('./result.pkl', 'rb') as f:
+    #     result = pickle.load(f)
     cm = confusion_matrix(true_lables, result)
     plot_confusion_matrix(cm,
-                          label_names,
+                          [i for i in range(1, len(label_names) + 1)],
                           title='Confusion Matrix of Pose Classification Model')
-    plt.savefig(f'./logs/{start_time}/confusion_matrix.png')
+    # plot_confusion_matrix(cm,
+    #                       label_names,
+    #                       title='Confusion Matrix of Pose Classification Model')
+
+    plt.savefig(f'./logs/{start_time}/confusion_matrix.pdf', format='pdf', bbox_inches="tight")
     # plt.show()
 
     # Print the classification report

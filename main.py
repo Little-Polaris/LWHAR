@@ -14,7 +14,7 @@ from torch.cuda.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from Model import Model13, Model7, Model9, ctrgcn, Model10, Model11, Model12, Model19
+from Model import Model13, Model7, Model9, ctrgcn, Model10, Model11, Model12, Model19, Model24_add_pos_enc_tem, Model24
 from utils.MyDataLoader import MyDataLoader
 from utils.after_finish import after_finish
 from utils.miniLogger import miniLogger
@@ -49,18 +49,8 @@ if __name__ == '__main__':
     logger.info(f'{config["dataset_name"]} {config["evaluation_mode"]}')
 
     # 创建模型
-    # model = BlockGCN.Model()
-    # model = Model4.Model(config['num_class'], config['num_point'],
-    #                     config['num_person'], config['edges'], config['dims'])
-    # model = ctrgcn.Model(num_class=config['num_class'])
-    model = Model19.Model(config['num_class'], config['num_point'],
+    model = Model24.Model(config['num_class'], config['num_point'],
                     config['num_person'], config['dims'])
-    # model = Model12.Model(num_class=config['num_class'])
-    # model = MyModel.Model()
-    # model = temp.Model()
-    # model = MyModel1.Model()
-    # model = NewModel.Model(config['num_class'], config['num_point'], config['dims'])
-    # model = nn.DataParallel(model)
     shutil.move('./logs/model.py', f"./logs/{sorted(os.listdir('./logs'))[-2]}/model.py")
     
     model = model.to(device)
