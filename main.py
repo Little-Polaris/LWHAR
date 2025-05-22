@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn, autocast
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     acc = []
 
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     # torch.autograd.set_detect_anomaly(True)
 
     for i in range(epoch + warm_up_epoch):
@@ -143,4 +143,4 @@ if __name__ == '__main__':
         if i == warm_up_epoch - 1:
             logger.info('Warm up finish, start training')
 
-    after_finish(True)
+    # after_finish(True)

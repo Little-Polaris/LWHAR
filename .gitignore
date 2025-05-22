@@ -6,3 +6,6 @@
 logs/
 temp_test/
 *.zip
+.idea/
+.vscode/
+__pycache__/
