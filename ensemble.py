@@ -48,8 +48,6 @@ if __name__ == '__main__':
     logger = miniLogger(start_time)
     shutil.copy2(args['config_path'], f'logs/{start_time}/config.json')
     shutil.move('./logs/model.py', f"./logs/{start_time}/model.py")
-    # total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # logger.info(f'Total params: {total_params}')
 
 
     label_map_file = open('./lables.txt')
