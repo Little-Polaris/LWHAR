@@ -42,7 +42,6 @@ if __name__ == '__main__':
         x, y, _ = data
         y_pred.append(model(x.to(device)).detach().cpu().numpy())
 
-    # y_pred = model(torch.tensor(test_data).cuda())
 
     # Convert the prediction result to class name
     y_pred = np.concatenate(y_pred, axis=0)
